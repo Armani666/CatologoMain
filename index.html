@@ -1,0 +1,201 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rose Gold Luxury | Catalogo Digital</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="catalog-header">
+      <div class="brand-row">
+        <div>
+          <p class="eyebrow">Rose Gold Luxury</p>
+          <h1 id="admin-trigger">Catalogo</h1>
+        </div>
+        <button class="nav-pill order-pill" id="open-cart" type="button">Pedido <span id="hero-cart-count">0</span></button>
+      </div>
+      <div class="header-actions">
+        <button class="nav-pill active" type="button">Catalogo</button>
+        <button class="nav-pill" type="button">Categorias</button>
+      </div>
+    </header>
+
+    <section class="admin-bar" id="admin-bar" hidden>
+      <p class="admin-bar-label">Modo edicion</p>
+      <div class="admin-bar-actions">
+        <button class="secondary-action" id="admin-export-pdf" type="button">Exportar PDF</button>
+        <button class="secondary-action" id="admin-add-product" type="button">Nuevo producto</button>
+        <button class="ghost-action" id="admin-exit" type="button">Salir</button>
+      </div>
+    </section>
+
+    <main id="catalogo">
+      <section class="toolbar">
+        <label class="search-field">
+          <span>Buscar</span>
+          <input id="search-input" type="search" placeholder="Producto, tono o marca">
+        </label>
+        <label class="filter-field">
+          <span>Categoria</span>
+          <select id="category-filter"></select>
+        </label>
+        <label class="filter-field">
+          <span>Marca</span>
+          <select id="brand-filter"></select>
+        </label>
+        <p id="results-count">0 productos</p>
+        <button class="ghost-action" id="clear-filters" type="button">Limpiar filtros</button>
+      </section>
+
+      <section class="product-grid" id="product-grid" aria-live="polite"></section>
+    </main>
+  </div>
+
+  <section class="print-catalog" id="print-catalog" hidden>
+    <header class="print-header">
+      <p>Rose Gold Luxury</p>
+      <h1>Catalogo Digital</h1>
+    </header>
+    <section class="print-grid" id="print-grid"></section>
+  </section>
+
+  <aside class="cart-drawer" id="cart-drawer" aria-hidden="true">
+    <div class="cart-header">
+      <div>
+        <p class="panel-label">Pedido</p>
+        <h2>Resumen</h2>
+      </div>
+      <button class="icon-button" id="close-cart" type="button" aria-label="Cerrar pedido">Ã—</button>
+    </div>
+    <div class="cart-items" id="cart-items"></div>
+    <div class="cart-footer">
+      <p class="cart-total-label">Total estimado</p>
+      <p class="cart-total-value" id="cart-total">$0.00</p>
+      <p class="cart-disclaimer" id="cart-disclaimer">Si un producto no tiene precio cargado, se enviara como precio por confirmar.</p>
+      <button class="primary-action wide" id="send-order" type="button">Enviar pedido por WhatsApp</button>
+    </div>
+  </aside>
+
+  <aside class="admin-drawer" id="admin-drawer" aria-hidden="true">
+    <div class="admin-header">
+      <div>
+        <p class="panel-label">Admin</p>
+        <h2>Productos</h2>
+      </div>
+      <button class="icon-button" id="close-admin" type="button" aria-label="Cerrar admin">x</button>
+    </div>
+
+    <form class="admin-form" id="admin-form">
+      <input id="admin-id" type="hidden">
+      <label class="filter-field"><span>Producto</span><input id="admin-name" type="text" required></label>
+      <label class="filter-field"><span>Marca</span><input id="admin-brand" type="text" required></label>
+      <label class="filter-field"><span>Categoria</span><input id="admin-category" type="text" required></label>
+      <label class="filter-field"><span>Tipo</span><input id="admin-type" type="text" required></label>
+      <label class="filter-field"><span>Descripcion</span><textarea id="admin-description" rows="3" required></textarea></label>
+      <label class="filter-field"><span>Tono</span><input id="admin-tone" type="text"></label>
+      <label class="filter-field"><span>Precio</span><input id="admin-price" type="number" step="0.01" min="0"></label>
+      <label class="filter-field"><span>Imagen URL</span><input id="admin-image-url" type="url"></label>
+      <label class="filter-field"><span>Referencia URL</span><input id="admin-reference-url" type="url"></label>
+      <div class="admin-actions">
+        <button class="primary-action" type="submit">Guardar</button>
+        <button class="ghost-action" id="admin-reset" type="button">Nuevo</button>
+      </div>
+    </form>
+
+    <div class="admin-list" id="admin-list"></div>
+  </aside>
+
+  <div class="backdrop" id="backdrop" hidden></div>
+  <div class="login-modal" id="login-modal" hidden>
+    <div class="login-modal-backdrop" id="login-modal-backdrop"></div>
+    <div class="login-modal-card">
+      <div class="login-modal-head">
+        <div>
+          <p class="panel-label">Acceso</p>
+          <h2>Login admin</h2>
+        </div>
+        <button class="icon-button" id="close-login" type="button" aria-label="Cerrar login">x</button>
+      </div>
+      <form class="login-form" id="login-form">
+        <label class="filter-field"><span>Usuario</span><input id="login-username" type="text" autocomplete="username" required></label>
+        <label class="filter-field"><span>Contraseña</span><input id="login-password" type="password" autocomplete="current-password" required></label>
+        <p class="login-error" id="login-error" hidden>Credenciales incorrectas.</p>
+        <button class="primary-action wide" type="submit">Entrar</button>
+      </form>
+    </div>
+  </div>
+  <div class="image-modal" id="image-modal" hidden>
+    <div class="image-modal-backdrop" id="image-modal-backdrop"></div>
+    <div class="image-modal-card">
+      <button class="image-modal-close" id="image-modal-close" type="button" aria-label="Cerrar imagen">x</button>
+      <img class="image-modal-img" id="image-modal-img" alt="">
+      <a class="image-modal-link" id="image-modal-link" href="#" target="_blank" rel="noopener noreferrer" hidden>Ver referencia</a>
+    </div>
+  </div>
+  <div class="media-modal" id="media-modal" hidden>
+    <div class="media-modal-backdrop" id="media-modal-backdrop"></div>
+    <div class="media-modal-card">
+      <div class="login-modal-head">
+        <div>
+          <p class="panel-label">Producto</p>
+          <h2>Imagen y referencia</h2>
+        </div>
+        <button class="icon-button" id="media-modal-close" type="button" aria-label="Cerrar editor de media">x</button>
+      </div>
+      <form class="media-form" id="media-form">
+        <label class="filter-field"><span>Imagen URL</span><input id="media-image-url" type="url" placeholder="https://..." required></label>
+        <label class="filter-field"><span>Referencia URL</span><input id="media-reference-url" type="url" placeholder="https://..."></label>
+        <div class="admin-actions">
+          <button class="primary-action wide" type="submit">Guardar</button>
+          <button class="ghost-action wide" id="media-modal-cancel" type="button">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <template id="product-card-template">
+    <article class="product-card">
+      <div class="product-media">
+        <div class="product-edit-flag" hidden>EDITANDO</div>
+        <div class="product-badge"></div>
+        <div class="product-art">
+          <img class="product-image" alt="" loading="lazy">
+          <span class="product-initial"></span>
+        </div>
+        <button class="floating-cart add-to-cart" type="button" aria-label="Agregar al pedido">+</button>
+      </div>
+      <div class="product-body">
+        <p class="product-brand"></p>
+        <h3 class="product-name"></h3>
+        <p class="product-type"></p>
+        <p class="product-description"></p>
+      </div>
+      <dl class="product-meta">
+        <div>
+          <dt>Tono</dt>
+          <dd class="product-tone"></dd>
+        </div>
+        <div>
+          <dt>Precio</dt>
+          <dd class="product-price"></dd>
+        </div>
+      </dl>
+      <div class="product-actions">
+        <a class="ghost-action buy-now" href="#" target="_blank" rel="noopener noreferrer">Pedir ahora</a>
+      </div>
+      <div class="product-admin-actions" hidden>
+        <button class="admin-card-btn admin-card-save" type="button">Guardar</button>
+        <button class="admin-card-btn admin-card-delete" type="button">Eliminar</button>
+      </div>
+    </article>
+  </template>
+
+  <script src="productos.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
