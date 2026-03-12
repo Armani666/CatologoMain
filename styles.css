@@ -18,9 +18,8 @@ body {
   font-family: "Manrope", sans-serif;
   color: var(--ink);
   background:
-    radial-gradient(circle at top left, rgba(199, 161, 107, 0.34), transparent 26%),
-    radial-gradient(circle at top right, rgba(164, 91, 82, 0.18), transparent 24%),
-    linear-gradient(180deg, #fdf5ef 0%, #f6efe9 45%, #f0e4dc 100%);
+    linear-gradient(rgba(253, 245, 239, 0.72), rgba(246, 239, 233, 0.82)),
+    url("https://img.freepik.com/vector-gratis/elegante-fondo-pintado-mano-tinta-alcohol-color-rosa-pastel_1048-19138.jpg?semt=ais_hybrid&w=740&q=80") center top / cover fixed no-repeat;
 }
 button, input, select { font: inherit; }
 a { color: inherit; text-decoration: none; }
@@ -328,6 +327,22 @@ body.admin-mode .product-card.admin-editing:focus-within {
 .product-meta div { padding: 0; border-radius: 0; background: transparent; }
 .product-meta dt { display: none; }
 .product-meta dd { margin: 0; font-weight: 700; font-size: .84rem; }
+.product-availability {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: .74rem !important;
+}
+.product-availability.is-available {
+  color: #25653f;
+  background: rgba(51, 134, 84, 0.14);
+}
+.product-availability.is-unavailable {
+  color: #8c2323;
+  background: rgba(140, 35, 35, 0.12);
+}
 .product-price { font-size: 1.05rem; }
 .editable-field {
   cursor: text;
@@ -367,6 +382,12 @@ body.admin-mode .product-card.admin-editing .editable-field:focus {
 }
 .product-actions { margin-top: auto; }
 .product-actions .ghost-action { border: 0; padding-left: 0; justify-content: flex-start; }
+.product-actions .buy-now.is-disabled,
+.floating-cart:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
 .product-admin-actions {
   position: relative;
   z-index: 5;
@@ -643,10 +664,17 @@ body.admin-mode .product-card.admin-editing .editable-field:focus {
 }
 
 .image-modal-link {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
   margin-top: 12px;
-  color: #a45b52;
-  font-weight: 700;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+  color: #fff;
+  font-weight: 800;
+  box-shadow: 0 14px 28px rgba(124, 62, 55, 0.2);
 }
 
 .media-modal {
@@ -742,18 +770,32 @@ body.admin-mode .product-card.admin-editing .editable-field:focus {
   }
   .admin-actions,
   .admin-item-actions,
-  .admin-bar-actions,
   .product-admin-actions {
     flex-direction: column;
   }
   .admin-bar {
+    left: 10px;
     right: 10px;
     bottom: 10px;
-    padding: 6px;
+    width: auto;
+    max-width: none;
+    justify-content: center;
+    padding: 8px;
+    border-radius: 18px;
+  }
+  .admin-bar-actions {
+    width: 100%;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
   }
   .admin-bar .secondary-action,
   .admin-bar .ghost-action {
-    padding: 8px 10px;
+    flex: 1 1 calc(50% - 8px);
+    min-width: 120px;
+    padding: 9px 10px;
     font-size: .72rem;
   }
   .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -892,6 +934,7 @@ body.admin-mode .product-card.admin-editing .editable-field:focus {
   }
 
   .print-tone,
+  .print-stock,
   .print-price {
     margin: 0;
     color: #251816;
@@ -900,6 +943,21 @@ body.admin-mode .product-card.admin-editing .editable-field:focus {
   .print-tone {
     font-size: 6.3pt;
     font-weight: 700;
+  }
+
+  .print-stock {
+    font-size: 6.1pt;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .print-stock.is-available {
+    color: #25653f;
+  }
+
+  .print-stock.is-unavailable {
+    color: #8c2323;
   }
 
   .print-price {

@@ -12,6 +12,7 @@ const fieldPlaceholders = {
   name: "Nombre del producto",
   type: "Tipo",
   description: "Descripcion",
+  availability: "Cantidad disponible",
   tone: "Tono",
   price: "Precio"
 };
@@ -23,6 +24,9 @@ const baseProducts = (window.CATALOG_PRODUCTS || []).map((product, index) => ({
   category: product.category || "",
   type: product.type || "",
   description: product.description || "",
+  stock: typeof product.stock === "number"
+    ? Math.max(0, product.stock)
+    : (typeof product.available === "boolean" ? (product.available ? 1 : 0) : 1),
   tone: product.tone || "",
   price: typeof product.price === "number" && !Number.isNaN(product.price) ? product.price : null,
   imageUrl: product.imageUrl || "",
@@ -109,6 +113,9 @@ function loadProducts() {
   products = source.map((product, index) => ({
     ...product,
     id: product.id ?? index + 1,
+    stock: typeof product.stock === "number"
+      ? Math.max(0, product.stock)
+      : (typeof product.available === "boolean" ? (product.available ? 1 : 0) : 1),
     price: typeof product.price === "number" && !Number.isNaN(product.price) ? product.price : null,
     imageKey: product.imageKey || makeImageKey(product)
   })).filter((product) => product.name && product.category && product.type);
@@ -120,6 +127,20 @@ function saveProducts() {
 
 function formatPrice(price) {
   return price === null ? "Precio por confirmar" : currency.format(price);
+}
+
+function isAvailable(product) {
+  return Number(product.stock || 0) > 0;
+}
+
+function formatAvailability(stock) {
+  return Number(stock || 0) > 0 ? `Disponible (${stock})` : "Agotado";
+}
+
+function parseStock(value, fallback = 0) {
+  const parsed = Number(String(value || "").trim());
+  if (Number.isNaN(parsed)) return fallback;
+  return Math.max(0, parsed);
 }
 
 function uniqueValues(key) {
@@ -164,7 +185,7 @@ function buildWhatsappLink(items) {
   const lines = [
     "Hola, quiero hacer este pedido:",
     "",
-    ...items.map((item, index) => `${index + 1}. ${item.name} | Tono: ${item.tone || "No visible"} | Precio: ${formatPrice(item.price)}`),
+    ...items.map((item, index) => `${index + 1}. ${item.name} | Tono: ${item.tone || "No visible"} | Precio: ${formatPrice(item.price)} | Estado: ${formatAvailability(item.stock)}`),
     "",
     `Total estimado: ${totalLabel}`
   ];
@@ -290,6 +311,7 @@ function renderPrintCatalog() {
         <p class="print-type">${product.type}</p>
         <div class="print-meta">
           <p class="print-tone">${product.tone || "No visible"}</p>
+          <p class="print-stock ${isAvailable(product) ? "is-available" : "is-unavailable"}">${formatAvailability(product.stock)}</p>
           <p class="print-price">${formatPrice(product.price)}</p>
         </div>
       </div>
@@ -323,6 +345,7 @@ function saveProductFromCard(card) {
     category: values.category || current.category,
     type: values.type || current.type,
     description: values.description || current.description,
+    stock: parseStock(values.availability, current.stock),
     tone: values.tone || "",
     price: values.price ? Number(values.price) : null
   });
@@ -347,6 +370,7 @@ function createBlankProduct() {
     category: "",
     type: "",
     description: "",
+    stock: 1,
     tone: "",
     price: null,
     imageUrl: "",
@@ -379,6 +403,7 @@ function renderProducts() {
     const name = node.querySelector(".product-name");
     const type = node.querySelector(".product-type");
     const description = node.querySelector(".product-description");
+    const availability = node.querySelector(".product-availability");
     const tone = node.querySelector(".product-tone");
     const price = node.querySelector(".product-price");
     const initial = node.querySelector(".product-initial");
@@ -395,9 +420,13 @@ function renderProducts() {
     name.textContent = product.name || "";
     type.textContent = product.type || "";
     description.textContent = product.description || "";
+    availability.textContent = state.adminMode ? String(product.stock ?? 0) : formatAvailability(product.stock);
     tone.textContent = state.adminMode ? (product.tone || "") : (product.tone || "No visible");
     price.textContent = state.adminMode ? (product.price ?? "") : formatPrice(product.price);
     initial.textContent = (product.name || "N").slice(0, 1).toUpperCase();
+
+    availability.classList.toggle("is-available", isAvailable(product));
+    availability.classList.toggle("is-unavailable", !isAvailable(product));
 
     if (product.imageUrl) {
       image.src = product.imageUrl;
@@ -429,6 +458,7 @@ function renderProducts() {
         [name, "name"],
         [type, "type"],
         [description, "description"],
+        [availability, "availability"],
         [tone, "tone"],
         [price, "price"]
       ].forEach(([el, field]) => {
@@ -458,8 +488,13 @@ function renderProducts() {
       adminActions.hidden = true;
     }
 
-    node.querySelector(".add-to-cart").addEventListener("click", () => addToCart(product.id));
-    node.querySelector(".buy-now").href = buildWhatsappLink([product]);
+    const addToCartButton = node.querySelector(".add-to-cart");
+    const buyNowLink = node.querySelector(".buy-now");
+    addToCartButton.disabled = !isAvailable(product);
+    buyNowLink.href = isAvailable(product) ? buildWhatsappLink([product]) : "#";
+    buyNowLink.textContent = isAvailable(product) ? "Pedir ahora" : "Agotado";
+    buyNowLink.classList.toggle("is-disabled", !isAvailable(product));
+    addToCartButton.addEventListener("click", () => addToCart(product.id));
     fragment.appendChild(node);
   });
 
@@ -469,6 +504,7 @@ function renderProducts() {
 function addToCart(productId) {
   const product = products.find((item) => Number(item.id) === Number(productId));
   if (!product) return;
+  if (!isAvailable(product)) return;
   state.cart.push(product);
   renderCart();
 }
@@ -492,6 +528,7 @@ function renderCart() {
       wrapper.innerHTML = `
         <h3>${item.name}</h3>
         <p>${item.brand} | ${item.category}</p>
+        <p>Estado: ${formatAvailability(item.stock)}</p>
         <p>Tono: ${item.tone || "No visible"}</p>
         <p>Precio: ${formatPrice(item.price)}</p>
         <button class="cart-remove" type="button">Quitar</button>
