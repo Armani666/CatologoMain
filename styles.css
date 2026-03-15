@@ -1,13 +1,14 @@
 ﻿:root {
-  --bg: #f6efe9;
-  --surface: rgba(255, 250, 246, 0.82);
-  --ink: #251816;
-  --muted: #6e5852;
-  --line: rgba(73, 40, 31, 0.12);
-  --accent: #a45b52;
-  --accent-strong: #7c3e37;
-  --gold: #c7a16b;
+  --bg: #f7efe7;
+  --surface: rgba(255, 250, 246, 0.86);
+  --ink: #2c1b18;
+  --muted: #725c55;
+  --line: rgba(97, 58, 46, 0.12);
+  --accent: #b96a3f;
+  --accent-strong: #8f472c;
+  --gold: #d0a369;
   --shadow: 0 24px 60px rgba(65, 33, 27, 0.12);
+  --shadow-soft: 0 14px 34px rgba(76, 39, 31, 0.08);
 }
 
 * { box-sizing: border-box; }
@@ -18,13 +19,15 @@ body {
   font-family: "Manrope", sans-serif;
   color: var(--ink);
   background:
-    linear-gradient(rgba(253, 245, 239, 0.72), rgba(246, 239, 233, 0.82)),
+    radial-gradient(circle at top left, rgba(255, 220, 202, 0.52), transparent 30%),
+    radial-gradient(circle at top right, rgba(255, 240, 217, 0.58), transparent 28%),
+    linear-gradient(rgba(253, 245, 239, 0.76), rgba(246, 239, 233, 0.9)),
     url("https://img.freepik.com/vector-gratis/elegante-fondo-pintado-mano-tinta-alcohol-color-rosa-pastel_1048-19138.jpg?semt=ais_hybrid&w=740&q=80") center top / cover fixed no-repeat;
 }
 button, input, select { font: inherit; }
 a { color: inherit; text-decoration: none; }
 
-.page-shell { width: min(1200px, calc(100% - 32px)); margin: 0 auto; padding: 32px 0 56px; }
+.page-shell { width: min(1280px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 64px; }
 .print-catalog[hidden] { display: none !important; }
 .print-catalog { display: none; }
 .catalog-header, .toolbar, .results-bar, .product-card, .cart-drawer {
@@ -36,10 +39,11 @@ a { color: inherit; text-decoration: none; }
 .catalog-header {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
-  margin-bottom: 12px;
-  border-radius: 14px;
+  gap: 16px;
+  padding: 18px 22px;
+  margin-bottom: 18px;
+  border-radius: 28px;
+  background: linear-gradient(135deg, rgba(255, 252, 248, 0.94), rgba(246, 232, 222, 0.88));
 }
 .eyebrow, .panel-label {
   margin: 0 0 4px;
@@ -51,37 +55,48 @@ a { color: inherit; text-decoration: none; }
 .catalog-header h1, .cart-header h2 {
   margin: 0;
   font-family: "Cormorant Garamond", serif;
-  font-size: clamp(1.2rem, 2.5vw, 1.5rem);
-  line-height: .98;
-  font-weight: 600;
+  font-size: clamp(2.1rem, 5vw, 3.6rem);
+  line-height: .92;
+  font-weight: 700;
+  letter-spacing: -.03em;
 }
 .hero-text, .panel-note, .product-description, .cart-disclaimer { color: var(--muted); line-height: 1.6; }
+.hero-text {
+  max-width: 680px;
+  margin: 8px 0 0;
+  font-size: .96rem;
+}
 .product-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.brand-copy {
+  display: flex;
+  flex-direction: column;
+}
 
 .brand-row {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 18px;
 }
 
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   overflow-x: auto;
   padding-bottom: 2px;
 }
 
 .nav-pill {
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.82);
   color: var(--ink);
   border-radius: 999px;
-  padding: 7px 10px;
+  padding: 9px 14px;
   white-space: nowrap;
   cursor: pointer;
-  font-size: .78rem;
+  font-size: .82rem;
+  box-shadow: var(--shadow-soft);
 }
 
 .nav-pill span {
@@ -126,7 +141,8 @@ a { color: inherit; text-decoration: none; }
   bottom: 14px;
   z-index: 40;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
   margin: 0;
   padding: 8px;
@@ -144,11 +160,41 @@ a { color: inherit; text-decoration: none; }
 .admin-bar-actions {
   display: flex;
   gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 .admin-bar .secondary-action,
 .admin-bar .ghost-action {
   padding: 9px 12px;
   font-size: .78rem;
+}
+.admin-inline-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px 0 8px;
+  color: var(--muted);
+  font-size: .74rem;
+}
+.admin-inline-field select {
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(73, 40, 31, 0.08);
+  background: rgba(255, 255, 255, 0.82);
+}
+.admin-status-note {
+  margin: 0;
+  padding: 0 8px 2px;
+  font-size: .78rem;
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+.admin-status-note[data-tone="error"] {
+  color: #8c2323;
+}
+.admin-status-note[data-tone="success"] {
+  color: #25653f;
 }
 
 .admin-card-save.is-saved {
@@ -158,25 +204,28 @@ a { color: inherit; text-decoration: none; }
 .toolbar {
   display: grid;
   grid-template-columns: minmax(240px, 1.6fr) repeat(2, minmax(180px, .7fr));
-  gap: 10px;
-  padding: 12px;
-  margin-bottom: 10px;
+  gap: 14px;
+  padding: 16px;
+  margin-bottom: 16px;
+  border-radius: 26px;
+  background: rgba(255, 249, 244, 0.9);
 }
 .search-field, .filter-field {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 7px;
   font-size: .8rem;
   color: var(--muted);
 }
 .search-field input, .filter-field select {
   width: 100%;
-  padding: 10px 12px;
-  min-height: 42px;
-  border-radius: 10px;
+  padding: 12px 14px;
+  min-height: 48px;
+  border-radius: 14px;
   border: 1px solid rgba(73, 40, 31, 0.08);
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.86);
   color: var(--ink);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 .results-bar {
   display: flex;
@@ -191,19 +240,24 @@ a { color: inherit; text-decoration: none; }
 .product-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  gap: 22px 18px;
   align-items: start;
 }
 
 .product-card {
-  border-radius: 0;
-  padding: 0;
+  border-radius: 28px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
   min-height: 100%;
-  background: transparent;
-  border: 0;
-  box-shadow: none;
+  background: linear-gradient(180deg, rgba(255, 252, 248, 0.92), rgba(248, 237, 229, 0.88));
+  border: 1px solid rgba(126, 73, 56, 0.08);
+  box-shadow: var(--shadow-soft);
+  transition: transform .22s ease, box-shadow .22s ease;
+}
+.product-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 24px 44px rgba(90, 48, 38, 0.12);
 }
 .product-card.admin-editing {
   position: relative;
@@ -224,9 +278,11 @@ body.admin-mode .product-card.admin-editing:focus-within {
   position: relative;
   aspect-ratio: 1 / 1;
   overflow: hidden;
-  border-radius: 6px;
+  border-radius: 22px;
   border: 1px solid rgba(73, 40, 31, 0.08);
-  background: linear-gradient(160deg, rgba(255, 235, 221, 0.95), rgba(232, 218, 210, 0.9));
+  background:
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.72), transparent 34%),
+    linear-gradient(160deg, rgba(255, 236, 222, 0.98), rgba(232, 218, 210, 0.94));
 }
 
 .product-edit-flag {
@@ -259,7 +315,8 @@ body.admin-mode .product-card.admin-editing:focus-within {
   letter-spacing: .08em;
   text-transform: uppercase;
   color: var(--accent-strong);
-  background: rgba(164, 91, 82, 0.1);
+  background: rgba(255, 247, 241, 0.9);
+  backdrop-filter: blur(10px);
 }
 
 .product-art {
@@ -275,6 +332,10 @@ body.admin-mode .product-card.admin-editing:focus-within {
   object-fit: cover;
   display: block;
   cursor: zoom-in;
+  transition: transform .35s ease;
+}
+.product-card:hover .product-image {
+  transform: scale(1.04);
 }
 
 .product-initial {
@@ -298,7 +359,7 @@ body.admin-mode .product-card.admin-editing:focus-within {
   height: 42px;
   border: 0;
   border-radius: 999px;
-  background: #f28c00;
+  background: linear-gradient(135deg, #f08a00, #d96a00);
   color: #fff;
   font-size: 1.5rem;
   line-height: 1;
@@ -306,27 +367,40 @@ body.admin-mode .product-card.admin-editing:focus-within {
   box-shadow: 0 10px 24px rgba(242, 140, 0, 0.28);
 }
 
-.product-body { margin: 10px 0 8px; }
+.product-body { margin: 16px 0 10px; }
 .product-brand, .product-type {
   margin: 0 0 4px;
   color: var(--muted);
-  font-size: .74rem;
+  font-size: .75rem;
   text-transform: uppercase;
-  letter-spacing: .14em;
+  letter-spacing: .17em;
 }
-.product-name { margin: 0 0 6px; font-size: 1rem; line-height: 1.2; color: #d47a00; }
+.product-name {
+  margin: 0 0 10px;
+  font-size: 1.34rem;
+  line-height: 1.08;
+  font-weight: 800;
+  color: #cb7300;
+  letter-spacing: -.02em;
+}
 .product-description {
   margin: 0;
-  font-size: .78rem;
+  font-size: .92rem;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.product-meta { display: grid; gap: 8px; margin: auto 0 12px; }
+.product-meta {
+  display: grid;
+  gap: 10px;
+  margin: auto 0 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(124, 62, 55, 0.1);
+}
 .product-meta div { padding: 0; border-radius: 0; background: transparent; }
 .product-meta dt { display: none; }
-.product-meta dd { margin: 0; font-weight: 700; font-size: .84rem; }
+.product-meta dd { margin: 0; font-weight: 700; font-size: .96rem; }
 .product-availability {
   display: inline-flex;
   align-items: center;
@@ -343,7 +417,7 @@ body.admin-mode .product-card.admin-editing:focus-within {
   color: #8c2323;
   background: rgba(140, 35, 35, 0.12);
 }
-.product-price { font-size: 1.05rem; }
+.product-price { font-size: 1.18rem; color: var(--ink); }
 .editable-field {
   cursor: text;
 }
@@ -377,11 +451,17 @@ body.admin-mode .product-card.admin-editing .editable-field:focus {
 .product-actions .secondary-action,
 .product-actions .ghost-action,
 .product-actions .buy-now {
-  padding: 8px 0;
-  font-size: .8rem;
+  padding: 12px 16px;
+  font-size: .88rem;
 }
 .product-actions { margin-top: auto; }
-.product-actions .ghost-action { border: 0; padding-left: 0; justify-content: flex-start; }
+.product-actions .ghost-action {
+  border: 1px solid rgba(124, 62, 55, 0.1);
+  padding-left: 16px;
+  justify-content: center;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.65);
+}
 .product-actions .buy-now.is-disabled,
 .floating-cart:disabled {
   opacity: .5;
@@ -394,6 +474,20 @@ body.admin-mode .product-card.admin-editing .editable-field:focus {
   display: flex;
   gap: 8px;
   margin-top: 8px;
+}
+.product-admin-actions[hidden] {
+  display: none !important;
+}
+.product-edit-flag[hidden] {
+  display: none !important;
+}
+body:not(.admin-mode) .product-admin-actions,
+body:not(.admin-mode) .product-edit-flag,
+body:not(.admin-mode) .editable-field {
+  display: none !important;
+}
+.product-card.is-inactive {
+  opacity: .62;
 }
 .admin-card-btn {
   padding: 8px 10px;
@@ -432,7 +526,7 @@ body.admin-mode .product-card.admin-editing .editable-field:focus {
   top: 0;
   left: 0;
   z-index: 35;
-  width: min(460px, 100%);
+  width: min(520px, 100%);
   height: 100vh;
   padding: 18px;
   display: grid;
@@ -494,6 +588,19 @@ body.admin-mode .product-card.admin-editing .editable-field:focus {
   display: grid;
   gap: 10px;
 }
+.admin-helper {
+  margin: 0;
+  color: var(--muted);
+  font-size: .86rem;
+}
+.admin-form-block {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(73, 40, 31, 0.08);
+}
 .admin-form textarea,
 .admin-form input {
   width: 100%;
@@ -502,9 +609,38 @@ body.admin-mode .product-card.admin-editing .editable-field:focus {
   border: 1px solid rgba(73, 40, 31, 0.08);
   background: rgba(255, 255, 255, 0.8);
 }
+.admin-check-field input {
+  width: auto;
+}
+.admin-image-preview {
+  display: grid;
+  place-items: center;
+  min-height: 140px;
+  border-radius: 14px;
+  border: 1px dashed rgba(73, 40, 31, 0.18);
+  background: rgba(255, 255, 255, 0.72);
+  overflow: hidden;
+  color: var(--muted);
+  font-size: .84rem;
+}
+.admin-image-preview img {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  display: block;
+}
+.admin-image-preview-modal img {
+  max-height: 180px;
+}
 .admin-actions {
   display: flex;
   gap: 10px;
+}
+.admin-list-head h3 {
+  margin: 4px 0 0;
+  font-family: "Cormorant Garamond", serif;
+  font-size: 1.5rem;
+  line-height: 1;
 }
 .admin-list {
   overflow: auto;
@@ -516,8 +652,9 @@ body.admin-mode .product-card.admin-editing .editable-field:focus {
 .admin-item {
   padding: 12px;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.82);
   border: 1px solid rgba(73, 40, 31, 0.08);
+  box-shadow: var(--shadow-soft);
 }
 .admin-item h3,
 .admin-item p {
@@ -553,6 +690,9 @@ body.admin-mode .product-card.admin-editing .editable-field:focus {
   inset: 0;
   z-index: 20;
   background: rgba(37, 24, 22, 0.28);
+}
+.backdrop[hidden] {
+  display: none !important;
 }
 
 .login-modal {

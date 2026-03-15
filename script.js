@@ -1,10 +1,10 @@
 const whatsappNumber = "524791382982";
 const currency = new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" });
-const storageKey = "catalog_products_override_v1";
 const hiddenAdminClicksNeeded = 5;
-const adminCredentials = {
-  username: "admin",
-  password: "RoseGold2026"
+const supabaseConfig = {
+  url: "https://lvsslzdxvrqgskjydwjt.supabase.co",
+  anonKey: "sb_publishable_EGStQ8AySDkRHi2MjZ6AOQ_TJ5w417_",
+  table: "products"
 };
 const fieldPlaceholders = {
   category: "Categoria",
@@ -17,7 +17,11 @@ const fieldPlaceholders = {
   price: "Precio"
 };
 
-const baseProducts = (window.CATALOG_PRODUCTS || []).map((product, index) => ({
+const initialCatalogSource = Array.isArray(window.CATALOG_PRODUCTS_OVERRIDE)
+  ? window.CATALOG_PRODUCTS_OVERRIDE
+  : (window.CATALOG_PRODUCTS || []);
+
+const baseProducts = initialCatalogSource.map((product, index) => ({
   id: product.id ?? index + 1,
   name: product.name || "",
   brand: product.brand || "",
@@ -31,11 +35,22 @@ const baseProducts = (window.CATALOG_PRODUCTS || []).map((product, index) => ({
   price: typeof product.price === "number" && !Number.isNaN(product.price) ? product.price : null,
   imageUrl: product.imageUrl || "",
   referenceUrl: product.referenceUrl || "",
+  isActive: typeof product.isActive === "boolean" ? product.isActive : true,
   imageKey: product.imageKey || `${product.name || ""}__${product.category || ""}__${product.type || ""}`
 })).filter((product) => product.name && product.category && product.type);
 
 let products = [];
-const state = { search: "", category: "Todas", brand: "Todas", cart: [], adminMode: false };
+const state = {
+  search: "",
+  category: "Todas",
+  brand: "Todas",
+  cart: [],
+  adminMode: false,
+  adminStatus: "Todos",
+  remoteReady: false,
+  remoteEnabled: false,
+  saving: false
+};
 
 const elements = {
   grid: document.querySelector("#product-grid"),
@@ -70,20 +85,49 @@ const elements = {
   mediaModalClose: document.querySelector("#media-modal-close"),
   mediaForm: document.querySelector("#media-form"),
   mediaImageUrl: document.querySelector("#media-image-url"),
+  mediaImageFile: document.querySelector("#media-image-file"),
   mediaReferenceUrl: document.querySelector("#media-reference-url"),
+  mediaImagePreviewImg: document.querySelector("#media-image-preview-img"),
+  mediaImagePreviewEmpty: document.querySelector("#media-image-preview-empty"),
   mediaModalCancel: document.querySelector("#media-modal-cancel"),
   adminTrigger: document.querySelector("#admin-trigger"),
   adminBar: document.querySelector("#admin-bar"),
+  adminStatusFilter: document.querySelector("#admin-status-filter"),
+  adminStatusNote: document.querySelector("#admin-status-note"),
   adminExportPdf: document.querySelector("#admin-export-pdf"),
   adminAddProduct: document.querySelector("#admin-add-product"),
   adminExit: document.querySelector("#admin-exit"),
+  adminDrawer: document.querySelector("#admin-drawer"),
+  closeAdmin: document.querySelector("#close-admin"),
+  adminForm: document.querySelector("#admin-form"),
+  adminReset: document.querySelector("#admin-reset"),
+  adminList: document.querySelector("#admin-list"),
+  adminId: document.querySelector("#admin-id"),
+  adminName: document.querySelector("#admin-name"),
+  adminBrand: document.querySelector("#admin-brand"),
+  adminCategory: document.querySelector("#admin-category"),
+  adminType: document.querySelector("#admin-type"),
+  adminDescription: document.querySelector("#admin-description"),
+  adminTone: document.querySelector("#admin-tone"),
+  adminPrice: document.querySelector("#admin-price"),
+  adminImageUrl: document.querySelector("#admin-image-url"),
+  adminImageFile: document.querySelector("#admin-image-file"),
+  adminReferenceUrl: document.querySelector("#admin-reference-url"),
+  adminImagePreviewImg: document.querySelector("#admin-image-preview-img"),
+  adminImagePreviewEmpty: document.querySelector("#admin-image-preview-empty"),
+  adminActive: document.querySelector("#admin-active"),
   openCart: document.querySelector("#open-cart"),
   closeCart: document.querySelector("#close-cart"),
   sendOrder: document.querySelector("#send-order")
 };
 
+const supabaseClient = window.supabase?.createClient
+  ? window.supabase.createClient(supabaseConfig.url, supabaseConfig.anonKey)
+  : null;
+
 let adminTapCount = 0;
 let currentMediaProductId = null;
+let currentAdminProductId = null;
 let restoreAdminAfterPrint = false;
 let savedPrintView = null;
 
@@ -100,29 +144,138 @@ function setAdminAuthenticated(value) {
   else sessionStorage.removeItem("catalog_admin_session_v1");
 }
 
-function loadProducts() {
-  const stored = localStorage.getItem(storageKey);
-  let source = baseProducts;
-  if (stored) {
-    try {
-      source = JSON.parse(stored);
-    } catch {
-      source = baseProducts;
-    }
-  }
-  products = source.map((product, index) => ({
+function normalizeProduct(product, index) {
+  const parsedPrice = typeof product.price === "number"
+    ? product.price
+    : (product.price === null || product.price === "" || typeof product.price === "undefined"
+        ? null
+        : Number(product.price));
+
+  return {
     ...product,
-    id: product.id ?? index + 1,
+    id: Number(product.id ?? index + 1),
     stock: typeof product.stock === "number"
       ? Math.max(0, product.stock)
-      : (typeof product.available === "boolean" ? (product.available ? 1 : 0) : 1),
-    price: typeof product.price === "number" && !Number.isNaN(product.price) ? product.price : null,
+      : (typeof product.available === "boolean" ? (product.available ? 1 : 0) : parseStock(product.stock, 1)),
+    price: Number.isNaN(parsedPrice) ? null : parsedPrice,
+    imageUrl: product.imageUrl || "",
+    referenceUrl: product.referenceUrl || "",
+    isActive: typeof product.isActive === "boolean"
+      ? product.isActive
+      : (typeof product.is_active === "boolean" ? product.is_active : true),
     imageKey: product.imageKey || makeImageKey(product)
-  })).filter((product) => product.name && product.category && product.type);
+  };
 }
 
-function saveProducts() {
-  localStorage.setItem(storageKey, JSON.stringify(products));
+function toDatabaseProduct(product) {
+  return {
+    id: Number(product.id),
+    name: product.name || "",
+    brand: product.brand || "",
+    category: product.category || "",
+    type: product.type || "",
+    description: product.description || "",
+    stock: parseStock(product.stock, 0),
+    tone: product.tone || "",
+    price: product.price === null || product.price === "" ? null : Number(product.price),
+    image_url: product.imageUrl || "",
+    reference_url: product.referenceUrl || "",
+    is_active: product.isActive !== false,
+    image_key: product.imageKey || makeImageKey(product)
+  };
+}
+
+function fromDatabaseProduct(product, index) {
+  return normalizeProduct({
+    id: product.id,
+    name: product.name,
+    brand: product.brand,
+    category: product.category,
+    type: product.type,
+    description: product.description,
+    stock: product.stock,
+    tone: product.tone,
+    price: product.price,
+    imageUrl: product.image_url,
+    referenceUrl: product.reference_url,
+    isActive: product.is_active,
+    imageKey: product.image_key
+  }, index);
+}
+
+function ensureSupabase() {
+  if (!supabaseClient) {
+    throw new Error("No se pudo inicializar Supabase.");
+  }
+  return supabaseClient;
+}
+
+async function getCurrentAdminSession() {
+  const client = ensureSupabase();
+  const { data, error } = await client.auth.getSession();
+  if (error) throw error;
+  return data.session;
+}
+
+async function fetchRemoteProducts() {
+  const client = ensureSupabase();
+  const { data, error } = await client
+    .from(supabaseConfig.table)
+    .select("*")
+    .order("id", { ascending: true });
+
+  if (error) throw error;
+  return (data || []).map(fromDatabaseProduct).filter((product) => product.name && product.category && product.type);
+}
+
+async function upsertRemoteProducts(items) {
+  const client = ensureSupabase();
+  const payload = items.map(toDatabaseProduct);
+  const { error } = await client.from(supabaseConfig.table).upsert(payload, { onConflict: "id" });
+  if (error) throw error;
+}
+
+async function deleteRemoteProduct(productId) {
+  const client = ensureSupabase();
+  const { error } = await client.from(supabaseConfig.table).delete().eq("id", Number(productId));
+  if (error) throw error;
+}
+
+async function bootstrapRemoteCatalog() {
+  if (!baseProducts.length) return [];
+  await upsertRemoteProducts(baseProducts);
+  return fetchRemoteProducts();
+}
+
+async function loadProducts() {
+  if (!supabaseClient) {
+    products = baseProducts.map(normalizeProduct);
+    state.remoteEnabled = false;
+    state.remoteReady = false;
+    return;
+  }
+
+  try {
+    let remoteProducts = await fetchRemoteProducts();
+    if (!remoteProducts.length && baseProducts.length) {
+      remoteProducts = await bootstrapRemoteCatalog();
+    }
+    products = remoteProducts.length ? remoteProducts : baseProducts.map(normalizeProduct);
+    state.remoteEnabled = true;
+    state.remoteReady = true;
+  } catch (error) {
+    console.error("Supabase load failed", error);
+    products = baseProducts.map(normalizeProduct);
+    state.remoteEnabled = false;
+    state.remoteReady = false;
+    window.alert("No se pudo cargar Supabase. El catalogo abrio con los datos locales.");
+  }
+}
+
+async function persistProduct(product) {
+  if (!state.remoteEnabled) return false;
+  await upsertRemoteProducts([product]);
+  return true;
 }
 
 function formatPrice(price) {
@@ -141,6 +294,28 @@ function parseStock(value, fallback = 0) {
   const parsed = Number(String(value || "").trim());
   if (Number.isNaN(parsed)) return fallback;
   return Math.max(0, parsed);
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("No se pudo leer la imagen."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function setImagePreview(imgEl, emptyEl, src) {
+  if (!imgEl || !emptyEl) return;
+  if (src) {
+    imgEl.src = src;
+    imgEl.hidden = false;
+    emptyEl.hidden = true;
+  } else {
+    imgEl.src = "";
+    imgEl.hidden = true;
+    emptyEl.hidden = false;
+  }
 }
 
 function uniqueValues(key) {
@@ -167,8 +342,88 @@ function getFilteredProducts() {
     const matchesSearch = !search || haystack.includes(search);
     const matchesCategory = state.category === "Todas" || product.category === state.category;
     const matchesBrand = state.brand === "Todas" || product.brand === state.brand;
-    return matchesSearch && matchesCategory && matchesBrand;
+    const matchesAdminStatus = !state.adminMode
+      || state.adminStatus === "Todos"
+      || (state.adminStatus === "Activos" ? product.isActive !== false : product.isActive === false);
+    const matchesActive = state.adminMode || product.isActive !== false;
+    return matchesSearch && matchesCategory && matchesBrand && matchesActive && matchesAdminStatus;
   });
+}
+
+function showAdminStatus(message, tone = "info") {
+  if (!elements.adminStatusNote) return;
+  elements.adminStatusNote.textContent = message;
+  elements.adminStatusNote.hidden = !message;
+  elements.adminStatusNote.dataset.tone = tone;
+  if (!message) return;
+  window.clearTimeout(showAdminStatus.timeoutId);
+  showAdminStatus.timeoutId = window.setTimeout(() => {
+    elements.adminStatusNote.hidden = true;
+    elements.adminStatusNote.textContent = "";
+  }, 2200);
+}
+
+function openAdminDrawer() {
+  elements.adminDrawer.classList.add("open");
+  elements.adminDrawer.setAttribute("aria-hidden", "false");
+  elements.backdrop.hidden = false;
+}
+
+function closeAdminDrawer() {
+  elements.adminDrawer.classList.remove("open");
+  elements.adminDrawer.setAttribute("aria-hidden", "true");
+  if (!elements.cartDrawer.classList.contains("open")) {
+    elements.backdrop.hidden = true;
+  }
+}
+
+function resetAdminForm(product = null) {
+  currentAdminProductId = product ? Number(product.id) : null;
+  elements.adminId.value = product ? String(product.id) : "";
+  elements.adminName.value = product?.name || "";
+  elements.adminBrand.value = product?.brand || "";
+  elements.adminCategory.value = product?.category || "";
+  elements.adminType.value = product?.type || "";
+  elements.adminDescription.value = product?.description || "";
+  elements.adminTone.value = product?.tone || "";
+  elements.adminPrice.value = product?.price ?? "";
+  elements.adminImageUrl.value = product?.imageUrl || "";
+  elements.adminImageFile.value = "";
+  elements.adminReferenceUrl.value = product?.referenceUrl || "";
+  elements.adminActive.checked = product ? product.isActive !== false : true;
+  setImagePreview(elements.adminImagePreviewImg, elements.adminImagePreviewEmpty, product?.imageUrl || "");
+}
+
+function renderAdminList() {
+  if (!elements.adminList) return;
+  const adminItems = getFilteredProducts();
+  elements.adminList.innerHTML = "";
+
+  if (!adminItems.length) {
+    elements.adminList.innerHTML = `<div class="empty-state">No hay productos para este filtro.</div>`;
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  adminItems.forEach((product) => {
+    const item = document.createElement("article");
+    item.className = "admin-item";
+    item.innerHTML = `
+      <h3>${product.name}</h3>
+      <p>${product.brand} | ${product.category}</p>
+      <p>${product.isActive === false ? "Oculto" : "Visible"}</p>
+      <div class="admin-item-actions">
+        <button class="admin-edit" type="button">Editar</button>
+      </div>
+    `;
+    item.querySelector(".admin-edit").addEventListener("click", () => {
+      resetAdminForm(product);
+      openAdminDrawer();
+    });
+    fragment.appendChild(item);
+  });
+
+  elements.adminList.appendChild(fragment);
 }
 
 function getCartSummary() {
@@ -221,7 +476,9 @@ function closeImageModal() {
 function openMediaModal(product) {
   currentMediaProductId = product.id;
   elements.mediaImageUrl.value = product.imageUrl || "";
+  elements.mediaImageFile.value = "";
   elements.mediaReferenceUrl.value = product.referenceUrl || "";
+  setImagePreview(elements.mediaImagePreviewImg, elements.mediaImagePreviewEmpty, product.imageUrl || "");
   elements.mediaModal.hidden = false;
   setTimeout(() => elements.mediaImageUrl.focus(), 0);
 }
@@ -230,6 +487,7 @@ function closeMediaModal() {
   currentMediaProductId = null;
   elements.mediaModal.hidden = true;
   elements.mediaForm.reset();
+  setImagePreview(elements.mediaImagePreviewImg, elements.mediaImagePreviewEmpty, "");
 }
 
 function openCart() {
@@ -259,6 +517,7 @@ function openAdmin() {
   state.adminMode = true;
   elements.adminBar.hidden = false;
   document.body.classList.add("admin-mode");
+  renderAdminList();
   renderProducts();
 }
 
@@ -266,6 +525,7 @@ function closeAdmin() {
   state.adminMode = false;
   elements.adminBar.hidden = true;
   document.body.classList.remove("admin-mode");
+  closeAdminDrawer();
   renderProducts();
 }
 
@@ -319,16 +579,37 @@ function renderPrintCatalog() {
   `).join("");
 }
 
-function updateProduct(productId, updates) {
+function setSavingState(isSaving) {
+  state.saving = isSaving;
+  elements.adminAddProduct.disabled = isSaving;
+  if (state.adminMode) {
+    renderProducts();
+    renderAdminList();
+  }
+}
+
+async function updateProduct(productId, updates) {
   const index = products.findIndex((item) => Number(item.id) === Number(productId));
   if (index < 0) return;
-  const next = { ...products[index], ...updates };
+
+  const next = normalizeProduct({ ...products[index], ...updates }, index);
   next.imageKey = makeImageKey(next);
-  products[index] = next;
-  saveProducts();
-  refreshFilters();
-  renderProducts();
-  renderCart();
+
+  try {
+    setSavingState(true);
+    await persistProduct(next);
+    products[index] = next;
+    refreshFilters();
+    renderAdminList();
+    renderProducts();
+    renderCart();
+    showAdminStatus("Guardado con exito", "success");
+  } catch (error) {
+    console.error("Update failed", error);
+    showAdminStatus("No se pudo guardar", "error");
+  } finally {
+    setSavingState(false);
+  }
 }
 
 function saveProductFromCard(card) {
@@ -339,7 +620,7 @@ function saveProductFromCard(card) {
   card.querySelectorAll("[data-field]").forEach((field) => {
     values[field.dataset.field] = field.textContent.trim();
   });
-  updateProduct(productId, {
+  return updateProduct(productId, {
     name: values.name || current.name,
     brand: values.brand || current.brand,
     category: values.category || current.category,
@@ -351,36 +632,94 @@ function saveProductFromCard(card) {
   });
 }
 
-function deleteProduct(productId) {
+async function deleteProduct(productId) {
   if (!window.confirm("Eliminar este producto?")) return;
-  products = products.filter((item) => Number(item.id) !== Number(productId));
-  state.cart = state.cart.filter((item) => Number(item.id) !== Number(productId));
-  saveProducts();
-  refreshFilters();
-  renderProducts();
-  renderCart();
+
+  try {
+    setSavingState(true);
+    await deleteRemoteProduct(productId);
+    products = products.filter((item) => Number(item.id) !== Number(productId));
+    state.cart = state.cart.filter((item) => Number(item.id) !== Number(productId));
+    refreshFilters();
+    renderAdminList();
+    renderProducts();
+    renderCart();
+    if (currentAdminProductId === Number(productId)) {
+      resetAdminForm();
+    }
+    showAdminStatus("Producto eliminado", "success");
+  } catch (error) {
+    console.error("Delete failed", error);
+    showAdminStatus("No se pudo eliminar", "error");
+  } finally {
+    setSavingState(false);
+  }
 }
 
-function createBlankProduct() {
+async function duplicateProduct(productId) {
+  const current = products.find((item) => Number(item.id) === Number(productId));
+  if (!current) return;
+
   const nextId = products.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0) + 1;
-  const draft = {
+  const duplicate = normalizeProduct({
+    ...current,
     id: nextId,
-    name: "",
-    brand: "",
-    category: "",
-    type: "",
-    description: "",
+    name: `${current.name} copia`
+  });
+  duplicate.imageKey = makeImageKey(duplicate);
+
+  try {
+    setSavingState(true);
+    await persistProduct(duplicate);
+    products.unshift(duplicate);
+    refreshFilters();
+    renderAdminList();
+    renderProducts();
+    resetAdminForm(duplicate);
+    openAdminDrawer();
+    showAdminStatus("Producto duplicado", "success");
+  } catch (error) {
+    console.error("Duplicate failed", error);
+    showAdminStatus("No se pudo duplicar", "error");
+  } finally {
+    setSavingState(false);
+  }
+}
+
+async function createBlankProduct() {
+  const nextId = products.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0) + 1;
+  const draft = normalizeProduct({
+    id: nextId,
+    name: "Nuevo producto",
+    brand: "Marca",
+    category: "Categoria",
+    type: "Tipo",
+    description: "Descripcion",
     stock: 1,
     tone: "",
     price: null,
     imageUrl: "",
-    referenceUrl: ""
-  };
+    referenceUrl: "",
+    isActive: true
+  });
   draft.imageKey = makeImageKey(draft);
-  products.unshift(draft);
-  saveProducts();
-  refreshFilters();
-  renderProducts();
+
+  try {
+    setSavingState(true);
+    await persistProduct(draft);
+    products.unshift(draft);
+    refreshFilters();
+    renderAdminList();
+    renderProducts();
+    resetAdminForm(draft);
+    openAdminDrawer();
+    showAdminStatus("Producto listo para editar", "success");
+  } catch (error) {
+    console.error("Create failed", error);
+    showAdminStatus("No se pudo crear", "error");
+  } finally {
+    setSavingState(false);
+  }
 }
 
 function renderProducts() {
@@ -410,11 +749,14 @@ function renderProducts() {
     const editFlag = node.querySelector(".product-edit-flag");
     const adminActions = node.querySelector(".product-admin-actions");
     const saveBtn = node.querySelector(".admin-card-save");
+    const toggleBtn = node.querySelector(".admin-card-toggle");
+    const duplicateBtn = node.querySelector(".admin-card-duplicate");
     const deleteBtn = node.querySelector(".admin-card-delete");
     const image = node.querySelector(".product-image");
     const art = node.querySelector(".product-art");
 
     card.dataset.productId = String(product.id);
+    card.classList.toggle("is-inactive", product.isActive === false);
     badge.textContent = product.category || "";
     brand.textContent = product.brand || "";
     name.textContent = product.name || "";
@@ -467,21 +809,40 @@ function renderProducts() {
         el.dataset.field = field;
         el.dataset.placeholder = fieldPlaceholders[field] || "";
       });
-      saveBtn.addEventListener("click", (event) => {
+      saveBtn.disabled = state.saving;
+      toggleBtn.disabled = state.saving;
+      duplicateBtn.disabled = state.saving;
+      deleteBtn.disabled = state.saving;
+      toggleBtn.textContent = product.isActive === false ? "Activar" : "Desactivar";
+      saveBtn.addEventListener("click", async (event) => {
         event.preventDefault();
         event.stopPropagation();
-        saveProductFromCard(card);
-        saveBtn.textContent = "Guardado";
+        await saveProductFromCard(card);
+        saveBtn.textContent = "Guardado con exito";
         saveBtn.classList.add("is-saved");
         window.setTimeout(() => {
           saveBtn.textContent = "Guardar";
           saveBtn.classList.remove("is-saved");
-        }, 1400);
+        }, 1600);
       });
-      deleteBtn.addEventListener("click", (event) => {
+      card.addEventListener("dblclick", () => {
+        resetAdminForm(product);
+        openAdminDrawer();
+      });
+      toggleBtn.addEventListener("click", async (event) => {
         event.preventDefault();
         event.stopPropagation();
-        deleteProduct(card.dataset.productId);
+        await updateProduct(card.dataset.productId, { isActive: product.isActive === false });
+      });
+      duplicateBtn.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        await duplicateProduct(card.dataset.productId);
+      });
+      deleteBtn.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        await deleteProduct(card.dataset.productId);
       });
     } else {
       editFlag.hidden = true;
@@ -554,16 +915,32 @@ function syncFilters() {
   renderProducts();
 }
 
-loadProducts();
-setAdminAuthenticated(false);
-state.adminMode = false;
-refreshFilters();
-closeImageModal();
-elements.adminBar.hidden = true;
+async function initializeCatalog() {
+  await loadProducts();
+  try {
+    const session = supabaseClient ? await getCurrentAdminSession() : null;
+    setAdminAuthenticated(Boolean(session));
+  } catch {
+    setAdminAuthenticated(false);
+  }
+  state.adminMode = false;
+  refreshFilters();
+  closeImageModal();
+  closeAdminDrawer();
+  resetAdminForm();
+  elements.adminBar.hidden = true;
+  renderProducts();
+  renderCart();
+}
 
 elements.searchInput.addEventListener("input", syncFilters);
 elements.categoryFilter.addEventListener("change", syncFilters);
 elements.brandFilter.addEventListener("change", syncFilters);
+elements.adminStatusFilter.addEventListener("change", () => {
+  state.adminStatus = elements.adminStatusFilter.value;
+  renderAdminList();
+  renderProducts();
+});
 elements.clearFilters.addEventListener("click", () => {
   state.search = "";
   state.category = "Todas";
@@ -575,38 +952,169 @@ elements.clearFilters.addEventListener("click", () => {
 });
 elements.openCart.addEventListener("click", openCart);
 elements.closeCart.addEventListener("click", closeCart);
-elements.backdrop.addEventListener("click", closeCart);
+elements.backdrop.addEventListener("click", () => {
+  closeCart();
+  closeAdminDrawer();
+});
 elements.imageModalClose.addEventListener("click", closeImageModal);
 elements.imageModalBackdrop.addEventListener("click", closeImageModal);
 elements.mediaModalClose.addEventListener("click", closeMediaModal);
 elements.mediaModalBackdrop.addEventListener("click", closeMediaModal);
 elements.mediaModalCancel.addEventListener("click", closeMediaModal);
+elements.adminImageUrl.addEventListener("input", () => {
+  if (!elements.adminImageFile.files?.length) {
+    setImagePreview(elements.adminImagePreviewImg, elements.adminImagePreviewEmpty, elements.adminImageUrl.value.trim());
+  }
+});
+elements.adminImageFile.addEventListener("change", async () => {
+  const file = elements.adminImageFile.files?.[0];
+  if (!file) {
+    setImagePreview(elements.adminImagePreviewImg, elements.adminImagePreviewEmpty, elements.adminImageUrl.value.trim());
+    return;
+  }
+  try {
+    const dataUrl = await readFileAsDataUrl(file);
+    elements.adminImageUrl.value = dataUrl;
+    setImagePreview(elements.adminImagePreviewImg, elements.adminImagePreviewEmpty, dataUrl);
+  } catch {
+    showAdminStatus("No se pudo cargar la imagen", "error");
+  }
+});
+elements.mediaImageUrl.addEventListener("input", () => {
+  if (!elements.mediaImageFile.files?.length) {
+    setImagePreview(elements.mediaImagePreviewImg, elements.mediaImagePreviewEmpty, elements.mediaImageUrl.value.trim());
+  }
+});
+elements.mediaImageFile.addEventListener("change", async () => {
+  const file = elements.mediaImageFile.files?.[0];
+  if (!file) {
+    setImagePreview(elements.mediaImagePreviewImg, elements.mediaImagePreviewEmpty, elements.mediaImageUrl.value.trim());
+    return;
+  }
+  try {
+    const dataUrl = await readFileAsDataUrl(file);
+    elements.mediaImageUrl.value = dataUrl;
+    setImagePreview(elements.mediaImagePreviewImg, elements.mediaImagePreviewEmpty, dataUrl);
+  } catch {
+    showAdminStatus("No se pudo cargar la imagen", "error");
+  }
+});
+elements.closeAdmin.addEventListener("click", closeAdminDrawer);
 elements.adminExportPdf.addEventListener("click", exportCatalogPdf);
-elements.mediaForm.addEventListener("submit", (event) => {
+elements.adminForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  let imageValue = elements.adminImageUrl.value.trim();
+  const adminFile = elements.adminImageFile.files?.[0];
+  if (adminFile) {
+    try {
+      imageValue = await readFileAsDataUrl(adminFile);
+    } catch {
+      showAdminStatus("No se pudo cargar la imagen", "error");
+      return;
+    }
+  }
+  const payload = {
+    name: elements.adminName.value.trim(),
+    brand: elements.adminBrand.value.trim(),
+    category: elements.adminCategory.value.trim(),
+    type: elements.adminType.value.trim(),
+    description: elements.adminDescription.value.trim(),
+    tone: elements.adminTone.value.trim(),
+    stock: 1,
+    price: elements.adminPrice.value ? Number(elements.adminPrice.value) : null,
+    imageUrl: imageValue,
+    referenceUrl: elements.adminReferenceUrl.value.trim(),
+    isActive: elements.adminActive.checked
+  };
+
+  if (currentAdminProductId) {
+    await updateProduct(currentAdminProductId, payload);
+  } else {
+    const nextId = products.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0) + 1;
+    const draft = normalizeProduct({ id: nextId, ...payload });
+    draft.imageKey = makeImageKey(draft);
+    try {
+      setSavingState(true);
+      await persistProduct(draft);
+      products.unshift(draft);
+      refreshFilters();
+      renderAdminList();
+      renderProducts();
+      resetAdminForm(draft);
+      showAdminStatus("Guardado con exito", "success");
+    } catch (error) {
+      console.error("Admin form save failed", error);
+      showAdminStatus("No se pudo guardar", "error");
+    } finally {
+      setSavingState(false);
+    }
+  }
+});
+elements.adminReset.addEventListener("click", () => {
+  resetAdminForm();
+  openAdminDrawer();
+});
+elements.mediaForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (currentMediaProductId === null) return;
-  updateProduct(currentMediaProductId, {
-    imageUrl: elements.mediaImageUrl.value.trim(),
+  let imageValue = elements.mediaImageUrl.value.trim();
+  const mediaFile = elements.mediaImageFile.files?.[0];
+  if (mediaFile) {
+    try {
+      imageValue = await readFileAsDataUrl(mediaFile);
+    } catch {
+      showAdminStatus("No se pudo cargar la imagen", "error");
+      return;
+    }
+  }
+  await updateProduct(currentMediaProductId, {
+    imageUrl: imageValue,
     referenceUrl: elements.mediaReferenceUrl.value.trim()
   });
   closeMediaModal();
 });
 elements.adminAddProduct.addEventListener("click", createBlankProduct);
-elements.adminExit.addEventListener("click", () => {
+elements.adminExit.addEventListener("click", async () => {
+  try {
+    if (supabaseClient) {
+      const client = ensureSupabase();
+      await client.auth.signOut();
+    }
+  } catch (error) {
+    console.error("Sign out failed", error);
+  }
   setAdminAuthenticated(false);
   closeAdmin();
 });
 elements.closeLogin.addEventListener("click", closeLogin);
 elements.loginModalBackdrop.addEventListener("click", closeLogin);
-elements.loginForm.addEventListener("submit", (event) => {
+elements.loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const username = elements.loginUsername.value.trim();
   const password = elements.loginPassword.value;
-  if (username === adminCredentials.username && password === adminCredentials.password) {
+
+  if (!supabaseClient) {
+    elements.loginError.textContent = "Supabase no esta disponible.";
+    elements.loginError.hidden = false;
+    return;
+  }
+
+  try {
+    const client = ensureSupabase();
+    const { error } = await client.auth.signInWithPassword({
+      email: username,
+      password
+    });
+
+    if (error) throw error;
+
     setAdminAuthenticated(true);
+    elements.loginError.hidden = true;
     closeLogin();
     openAdmin();
-  } else {
+  } catch (error) {
+    console.error("Admin login failed", error);
+    elements.loginError.textContent = "Email o contraseña incorrectos.";
     elements.loginError.hidden = false;
   }
 });
@@ -629,6 +1137,7 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     closeCart();
     closeLogin();
+    closeAdminDrawer();
     closeImageModal();
     closeMediaModal();
   }
@@ -658,5 +1167,4 @@ elements.sendOrder.addEventListener("click", () => {
   }
 });
 
-renderProducts();
-renderCart();
+initializeCatalog();

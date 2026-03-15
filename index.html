@@ -13,9 +13,10 @@
   <div class="page-shell">
     <header class="catalog-header">
       <div class="brand-row">
-        <div>
+        <div class="brand-copy">
           <p class="eyebrow">Rose Gold Luxury</p>
           <h1 id="admin-trigger">Catalogo</h1>
+          <p class="hero-text">Maquillaje, skincare y tonos seleccionados para vender visualmente mejor.</p>
         </div>
         <button class="nav-pill order-pill" id="open-cart" type="button">Pedido <span id="hero-cart-count">0</span></button>
       </div>
@@ -28,10 +29,19 @@
     <section class="admin-bar" id="admin-bar" hidden>
       <p class="admin-bar-label">Modo edicion</p>
       <div class="admin-bar-actions">
+        <label class="admin-inline-field">
+          <span>Ver</span>
+          <select id="admin-status-filter">
+            <option value="Todos">Todos</option>
+            <option value="Activos">Activos</option>
+            <option value="Inactivos">Inactivos</option>
+          </select>
+        </label>
         <button class="secondary-action" id="admin-export-pdf" type="button">Exportar PDF</button>
         <button class="secondary-action" id="admin-add-product" type="button">Nuevo producto</button>
         <button class="ghost-action" id="admin-exit" type="button">Salir</button>
       </div>
+      <p class="admin-status-note" id="admin-status-note" hidden></p>
     </section>
 
     <main id="catalogo">
@@ -92,6 +102,9 @@
 
     <form class="admin-form" id="admin-form">
       <input id="admin-id" type="hidden">
+      <p class="admin-helper">Edita desde este panel y revisa la previsualizacion antes de guardar.</p>
+      <div class="admin-form-block">
+        <p class="panel-label">Datos</p>
       <label class="filter-field"><span>Producto</span><input id="admin-name" type="text" required></label>
       <label class="filter-field"><span>Marca</span><input id="admin-brand" type="text" required></label>
       <label class="filter-field"><span>Categoria</span><input id="admin-category" type="text" required></label>
@@ -99,14 +112,28 @@
       <label class="filter-field"><span>Descripcion</span><textarea id="admin-description" rows="3" required></textarea></label>
       <label class="filter-field"><span>Tono</span><input id="admin-tone" type="text"></label>
       <label class="filter-field"><span>Precio</span><input id="admin-price" type="number" step="0.01" min="0"></label>
+      </div>
+      <div class="admin-form-block">
+        <p class="panel-label">Imagen</p>
       <label class="filter-field"><span>Imagen URL</span><input id="admin-image-url" type="url"></label>
+      <label class="filter-field"><span>Subir imagen</span><input id="admin-image-file" type="file" accept="image/*"></label>
       <label class="filter-field"><span>Referencia URL</span><input id="admin-reference-url" type="url"></label>
+      <div class="admin-image-preview" id="admin-image-preview">
+        <img id="admin-image-preview-img" alt="" hidden>
+        <span id="admin-image-preview-empty">Sin imagen</span>
+      </div>
+      </div>
+      <label class="filter-field admin-check-field"><span>Visible</span><input id="admin-active" type="checkbox" checked></label>
       <div class="admin-actions">
         <button class="primary-action" type="submit">Guardar</button>
         <button class="ghost-action" id="admin-reset" type="button">Nuevo</button>
       </div>
     </form>
 
+    <div class="admin-list-head">
+      <p class="panel-label">Accesos rapidos</p>
+      <h3>Productos</h3>
+    </div>
     <div class="admin-list" id="admin-list"></div>
   </aside>
 
@@ -122,9 +149,9 @@
         <button class="icon-button" id="close-login" type="button" aria-label="Cerrar login">x</button>
       </div>
       <form class="login-form" id="login-form">
-        <label class="filter-field"><span>Usuario</span><input id="login-username" type="text" autocomplete="username" required></label>
+        <label class="filter-field"><span>Email admin</span><input id="login-username" type="email" autocomplete="username" required></label>
         <label class="filter-field"><span>Contraseña</span><input id="login-password" type="password" autocomplete="current-password" required></label>
-        <p class="login-error" id="login-error" hidden>Credenciales incorrectas.</p>
+        <p class="login-error" id="login-error" hidden>No se pudo iniciar sesion.</p>
         <button class="primary-action wide" type="submit">Entrar</button>
       </form>
     </div>
@@ -149,7 +176,12 @@
       </div>
       <form class="media-form" id="media-form">
         <label class="filter-field"><span>Imagen URL</span><input id="media-image-url" type="url" placeholder="https://..." required></label>
+        <label class="filter-field"><span>Subir imagen</span><input id="media-image-file" type="file" accept="image/*"></label>
         <label class="filter-field"><span>Referencia URL</span><input id="media-reference-url" type="url" placeholder="https://..."></label>
+        <div class="admin-image-preview admin-image-preview-modal" id="media-image-preview">
+          <img id="media-image-preview-img" alt="" hidden>
+          <span id="media-image-preview-empty">Sin imagen</span>
+        </div>
         <div class="admin-actions">
           <button class="primary-action wide" type="submit">Guardar</button>
           <button class="ghost-action wide" id="media-modal-cancel" type="button">Cancelar</button>
@@ -194,12 +226,16 @@
       </div>
       <div class="product-admin-actions" hidden>
         <button class="admin-card-btn admin-card-save" type="button">Guardar</button>
+        <button class="admin-card-btn admin-card-toggle" type="button">Desactivar</button>
+        <button class="admin-card-btn admin-card-duplicate" type="button">Duplicar</button>
         <button class="admin-card-btn admin-card-delete" type="button">Eliminar</button>
       </div>
     </article>
   </template>
 
   <script src="productos.js"></script>
+  <script src="productos-editados.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="script.js"></script>
 </body>
 </html>
