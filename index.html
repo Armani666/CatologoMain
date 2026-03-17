@@ -18,7 +18,10 @@
           <h1 id="admin-trigger">Catalogo</h1>
           <p class="hero-text">Maquillaje, skincare y tonos seleccionados para vender visualmente mejor.</p>
         </div>
-        <button class="nav-pill order-pill" id="open-cart" type="button">Pedido <span id="hero-cart-count">0</span></button>
+        <div class="header-quick-actions">
+          <button class="nav-pill" id="open-scanner" type="button">Escanear</button>
+          <button class="nav-pill order-pill" id="open-cart" type="button">Pedido <span id="hero-cart-count">0</span></button>
+        </div>
       </div>
       <div class="header-actions">
         <button class="nav-pill active" type="button">Catalogo</button>
@@ -37,12 +40,15 @@
             <option value="Inactivos">Inactivos</option>
           </select>
         </label>
+        <button class="secondary-action" id="admin-open-orders" type="button">Pedidos</button>
         <button class="secondary-action" id="admin-export-pdf" type="button">Exportar PDF</button>
         <button class="secondary-action" id="admin-add-product" type="button">Nuevo producto</button>
         <button class="ghost-action" id="admin-exit" type="button">Salir</button>
       </div>
       <p class="admin-status-note" id="admin-status-note" hidden></p>
     </section>
+
+    <div class="save-toast" id="save-toast" hidden></div>
 
     <main id="catalogo">
       <section class="toolbar">
@@ -109,6 +115,7 @@
       <label class="filter-field"><span>Marca</span><input id="admin-brand" type="text" required></label>
       <label class="filter-field"><span>Categoria</span><input id="admin-category" type="text" required></label>
       <label class="filter-field"><span>Tipo</span><input id="admin-type" type="text" required></label>
+      <label class="filter-field"><span>Codigo de barras</span><input id="admin-barcode" type="text" inputmode="numeric" autocomplete="off"></label>
       <label class="filter-field"><span>Descripcion</span><textarea id="admin-description" rows="3" required></textarea></label>
       <label class="filter-field"><span>Tono</span><input id="admin-tone" type="text"></label>
       <label class="filter-field"><span>Precio</span><input id="admin-price" type="number" step="0.01" min="0"></label>
@@ -137,6 +144,18 @@
     <div class="admin-list" id="admin-list"></div>
   </aside>
 
+  <aside class="orders-drawer" id="orders-drawer" aria-hidden="true">
+    <div class="admin-header">
+      <div>
+        <p class="panel-label">Admin</p>
+        <h2>Pedidos</h2>
+      </div>
+      <button class="icon-button" id="close-orders" type="button" aria-label="Cerrar pedidos">x</button>
+    </div>
+    <p class="admin-helper">Aqui se van guardando los pedidos que los clientes mandan desde el carrito.</p>
+    <div class="orders-list" id="orders-list"></div>
+  </aside>
+
   <div class="backdrop" id="backdrop" hidden></div>
   <div class="login-modal" id="login-modal" hidden>
     <div class="login-modal-backdrop" id="login-modal-backdrop"></div>
@@ -154,6 +173,23 @@
         <p class="login-error" id="login-error" hidden>No se pudo iniciar sesion.</p>
         <button class="primary-action wide" type="submit">Entrar</button>
       </form>
+    </div>
+  </div>
+  <div class="scanner-modal" id="scanner-modal" hidden>
+    <div class="scanner-modal-backdrop" id="scanner-modal-backdrop"></div>
+    <div class="scanner-modal-card">
+      <div class="login-modal-head">
+        <div>
+          <p class="panel-label">Escaner</p>
+          <h2>Codigo de barras</h2>
+        </div>
+        <button class="icon-button" id="close-scanner" type="button" aria-label="Cerrar escaner">x</button>
+      </div>
+      <video class="scanner-video" id="scanner-video" autoplay playsinline muted></video>
+      <p class="scanner-hint" id="scanner-hint">Apunta la camara al codigo de barras.</p>
+      <div class="admin-actions">
+        <button class="ghost-action wide" id="scanner-cancel" type="button">Cerrar</button>
+      </div>
     </div>
   </div>
   <div class="image-modal" id="image-modal" hidden>
@@ -222,6 +258,7 @@
         </div>
       </dl>
       <div class="product-actions">
+        <button class="secondary-action add-to-cart-inline" type="button">Agregar</button>
         <a class="ghost-action buy-now" href="#" target="_blank" rel="noopener noreferrer">Pedir ahora</a>
       </div>
       <div class="product-admin-actions" hidden>

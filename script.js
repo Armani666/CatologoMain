@@ -4,13 +4,16 @@ const hiddenAdminClicksNeeded = 5;
 const supabaseConfig = {
   url: "https://lvsslzdxvrqgskjydwjt.supabase.co",
   anonKey: "sb_publishable_EGStQ8AySDkRHi2MjZ6AOQ_TJ5w417_",
-  table: "products"
+  table: "products",
+  ordersTable: "orders",
+  orderItemsTable: "order_items"
 };
 const fieldPlaceholders = {
   category: "Categoria",
   brand: "Marca",
   name: "Nombre del producto",
   type: "Tipo",
+  barcode: "Codigo de barras",
   description: "Descripcion",
   availability: "Cantidad disponible",
   tone: "Tono",
@@ -27,6 +30,7 @@ const baseProducts = initialCatalogSource.map((product, index) => ({
   brand: product.brand || "",
   category: product.category || "",
   type: product.type || "",
+  barcode: product.barcode || "",
   description: product.description || "",
   stock: typeof product.stock === "number"
     ? Math.max(0, product.stock)
@@ -45,11 +49,13 @@ const state = {
   category: "Todas",
   brand: "Todas",
   cart: [],
+  orders: [],
   adminMode: false,
   adminStatus: "Todos",
   remoteReady: false,
   remoteEnabled: false,
-  saving: false
+  saving: false,
+  orderSubmitting: false
 };
 
 const elements = {
@@ -58,6 +64,7 @@ const elements = {
   printGrid: document.querySelector("#print-grid"),
   template: document.querySelector("#product-card-template"),
   resultsCount: document.querySelector("#results-count"),
+  saveToast: document.querySelector("#save-toast"),
   searchInput: document.querySelector("#search-input"),
   categoryFilter: document.querySelector("#category-filter"),
   brandFilter: document.querySelector("#brand-filter"),
@@ -90,14 +97,25 @@ const elements = {
   mediaImagePreviewImg: document.querySelector("#media-image-preview-img"),
   mediaImagePreviewEmpty: document.querySelector("#media-image-preview-empty"),
   mediaModalCancel: document.querySelector("#media-modal-cancel"),
+  scannerModal: document.querySelector("#scanner-modal"),
+  scannerModalBackdrop: document.querySelector("#scanner-modal-backdrop"),
+  scannerVideo: document.querySelector("#scanner-video"),
+  scannerHint: document.querySelector("#scanner-hint"),
+  openScanner: document.querySelector("#open-scanner"),
+  closeScanner: document.querySelector("#close-scanner"),
+  scannerCancel: document.querySelector("#scanner-cancel"),
   adminTrigger: document.querySelector("#admin-trigger"),
   adminBar: document.querySelector("#admin-bar"),
   adminStatusFilter: document.querySelector("#admin-status-filter"),
   adminStatusNote: document.querySelector("#admin-status-note"),
+  adminOpenOrders: document.querySelector("#admin-open-orders"),
   adminExportPdf: document.querySelector("#admin-export-pdf"),
   adminAddProduct: document.querySelector("#admin-add-product"),
   adminExit: document.querySelector("#admin-exit"),
   adminDrawer: document.querySelector("#admin-drawer"),
+  ordersDrawer: document.querySelector("#orders-drawer"),
+  ordersList: document.querySelector("#orders-list"),
+  closeOrders: document.querySelector("#close-orders"),
   closeAdmin: document.querySelector("#close-admin"),
   adminForm: document.querySelector("#admin-form"),
   adminReset: document.querySelector("#admin-reset"),
@@ -107,6 +125,7 @@ const elements = {
   adminBrand: document.querySelector("#admin-brand"),
   adminCategory: document.querySelector("#admin-category"),
   adminType: document.querySelector("#admin-type"),
+  adminBarcode: document.querySelector("#admin-barcode"),
   adminDescription: document.querySelector("#admin-description"),
   adminTone: document.querySelector("#admin-tone"),
   adminPrice: document.querySelector("#admin-price"),
@@ -128,8 +147,24 @@ const supabaseClient = window.supabase?.createClient
 let adminTapCount = 0;
 let currentMediaProductId = null;
 let currentAdminProductId = null;
+let scannerStream = null;
+let scannerIntervalId = null;
 let restoreAdminAfterPrint = false;
 let savedPrintView = null;
+let printOrderSnapshot = null;
+
+function createOrderId() {
+  return Date.now() * 1000 + Math.floor(Math.random() * 1000);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#39;");
+}
 
 function makeImageKey(product) {
   return `${product.name || ""}__${product.category || ""}__${product.type || ""}`;
@@ -158,6 +193,7 @@ function normalizeProduct(product, index) {
       ? Math.max(0, product.stock)
       : (typeof product.available === "boolean" ? (product.available ? 1 : 0) : parseStock(product.stock, 1)),
     price: Number.isNaN(parsedPrice) ? null : parsedPrice,
+    barcode: String(product.barcode || ""),
     imageUrl: product.imageUrl || "",
     referenceUrl: product.referenceUrl || "",
     isActive: typeof product.isActive === "boolean"
@@ -174,6 +210,7 @@ function toDatabaseProduct(product) {
     brand: product.brand || "",
     category: product.category || "",
     type: product.type || "",
+    barcode: product.barcode || "",
     description: product.description || "",
     stock: parseStock(product.stock, 0),
     tone: product.tone || "",
@@ -192,6 +229,7 @@ function fromDatabaseProduct(product, index) {
     brand: product.brand,
     category: product.category,
     type: product.type,
+    barcode: product.barcode,
     description: product.description,
     stock: product.stock,
     tone: product.tone,
@@ -241,10 +279,92 @@ async function deleteRemoteProduct(productId) {
   if (error) throw error;
 }
 
-async function bootstrapRemoteCatalog() {
-  if (!baseProducts.length) return [];
-  await upsertRemoteProducts(baseProducts);
-  return fetchRemoteProducts();
+async function fetchRemoteOrders() {
+  const client = ensureSupabase();
+  const { data, error } = await client
+    .from(supabaseConfig.ordersTable)
+    .select(`
+      id,
+      total,
+      item_count,
+      whatsapp_message,
+      status,
+      created_at,
+      order_items (
+        id,
+        product_id,
+        product_name,
+        brand,
+        category,
+        tone,
+        quantity,
+        unit_price
+      )
+    `)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return (data || []).map((order) => ({
+    id: Number(order.id),
+    total: order.total === null ? 0 : Number(order.total || 0),
+    itemCount: Number(order.item_count || 0),
+    whatsappMessage: order.whatsapp_message || "",
+    status: order.status || "nuevo",
+    createdAt: order.created_at || "",
+    items: Array.isArray(order.order_items) ? order.order_items.map((item) => ({
+      id: Number(item.id),
+      productId: item.product_id === null ? null : Number(item.product_id),
+      name: item.product_name || "",
+      brand: item.brand || "",
+      category: item.category || "",
+      tone: item.tone || "",
+      quantity: Number(item.quantity || 1),
+      unitPrice: item.unit_price === null ? null : Number(item.unit_price)
+    })) : []
+  }));
+}
+
+async function createRemoteOrder(orderPayload, itemPayload) {
+  const client = ensureSupabase();
+  const orderId = createOrderId();
+  const { error } = await client
+    .from(supabaseConfig.ordersTable)
+    .insert({ ...orderPayload, id: orderId });
+
+  if (error) throw error;
+
+  const items = itemPayload.map((item) => ({ ...item, order_id: orderId }));
+  const { error: itemsError } = await client.from(supabaseConfig.orderItemsTable).insert(items);
+  if (itemsError) throw itemsError;
+
+  return orderId;
+}
+
+async function deleteRemoteOrder(orderId) {
+  const client = ensureSupabase();
+  const { error } = await client.from(supabaseConfig.ordersTable).delete().eq("id", Number(orderId));
+  if (error) throw error;
+}
+
+function buildOrderRecord(orderId, groupedCart, orderPayload) {
+  return {
+    id: Number(orderId),
+    total: Number(orderPayload.total || 0),
+    itemCount: Number(orderPayload.item_count || 0),
+    whatsappMessage: orderPayload.whatsapp_message || "",
+    status: orderPayload.status || "nuevo",
+    createdAt: new Date().toISOString(),
+    items: groupedCart.map((item, index) => ({
+      id: index + 1,
+      productId: item.productId,
+      name: item.name,
+      brand: item.brand,
+      category: item.category,
+      tone: item.tone || "",
+      quantity: item.quantity,
+      unitPrice: item.unitPrice
+    }))
+  };
 }
 
 async function loadProducts() {
@@ -256,24 +376,23 @@ async function loadProducts() {
   }
 
   try {
-    let remoteProducts = await fetchRemoteProducts();
-    if (!remoteProducts.length && baseProducts.length) {
-      remoteProducts = await bootstrapRemoteCatalog();
-    }
-    products = remoteProducts.length ? remoteProducts : baseProducts.map(normalizeProduct);
+    const remoteProducts = await fetchRemoteProducts();
+    products = remoteProducts;
     state.remoteEnabled = true;
     state.remoteReady = true;
   } catch (error) {
     console.error("Supabase load failed", error);
-    products = baseProducts.map(normalizeProduct);
+    products = [];
     state.remoteEnabled = false;
-    state.remoteReady = false;
-    window.alert("No se pudo cargar Supabase. El catalogo abrio con los datos locales.");
+    state.remoteReady = true;
+    window.alert("No se pudo cargar el catalogo compartido. Revisa la conexion con Supabase.");
   }
 }
 
 async function persistProduct(product) {
-  if (!state.remoteEnabled) return false;
+  if (!state.remoteEnabled) {
+    throw new Error("Catalogo remoto no disponible");
+  }
   await upsertRemoteProducts([product]);
   return true;
 }
@@ -355,15 +474,25 @@ function showAdminStatus(message, tone = "info") {
   elements.adminStatusNote.textContent = message;
   elements.adminStatusNote.hidden = !message;
   elements.adminStatusNote.dataset.tone = tone;
+  if (elements.saveToast) {
+    elements.saveToast.textContent = message;
+    elements.saveToast.hidden = !message;
+    elements.saveToast.dataset.tone = tone;
+  }
   if (!message) return;
   window.clearTimeout(showAdminStatus.timeoutId);
   showAdminStatus.timeoutId = window.setTimeout(() => {
     elements.adminStatusNote.hidden = true;
     elements.adminStatusNote.textContent = "";
+    if (elements.saveToast) {
+      elements.saveToast.hidden = true;
+      elements.saveToast.textContent = "";
+    }
   }, 2200);
 }
 
 function openAdminDrawer() {
+  closeOrdersDrawer();
   elements.adminDrawer.classList.add("open");
   elements.adminDrawer.setAttribute("aria-hidden", "false");
   elements.backdrop.hidden = false;
@@ -372,7 +501,22 @@ function openAdminDrawer() {
 function closeAdminDrawer() {
   elements.adminDrawer.classList.remove("open");
   elements.adminDrawer.setAttribute("aria-hidden", "true");
-  if (!elements.cartDrawer.classList.contains("open")) {
+  if (!elements.cartDrawer.classList.contains("open") && !elements.ordersDrawer.classList.contains("open")) {
+    elements.backdrop.hidden = true;
+  }
+}
+
+function openOrdersDrawer() {
+  closeAdminDrawer();
+  elements.ordersDrawer.classList.add("open");
+  elements.ordersDrawer.setAttribute("aria-hidden", "false");
+  elements.backdrop.hidden = false;
+}
+
+function closeOrdersDrawer() {
+  elements.ordersDrawer.classList.remove("open");
+  elements.ordersDrawer.setAttribute("aria-hidden", "true");
+  if (!elements.cartDrawer.classList.contains("open") && !elements.adminDrawer.classList.contains("open")) {
     elements.backdrop.hidden = true;
   }
 }
@@ -384,6 +528,7 @@ function resetAdminForm(product = null) {
   elements.adminBrand.value = product?.brand || "";
   elements.adminCategory.value = product?.category || "";
   elements.adminType.value = product?.type || "";
+  elements.adminBarcode.value = product?.barcode || "";
   elements.adminDescription.value = product?.description || "";
   elements.adminTone.value = product?.tone || "";
   elements.adminPrice.value = product?.price ?? "";
@@ -447,6 +592,173 @@ function buildWhatsappLink(items) {
   return `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(lines.join("\n"))}`;
 }
 
+function groupCartItems(items) {
+  const grouped = new Map();
+  items.forEach((item) => {
+    const key = String(item.id);
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.quantity += 1;
+      return;
+    }
+    grouped.set(key, {
+      productId: Number(item.id),
+      name: item.name || "",
+      brand: item.brand || "",
+      category: item.category || "",
+      tone: item.tone || "",
+      unitPrice: item.price === null ? null : Number(item.price),
+      stock: item.stock,
+      quantity: 1
+    });
+  });
+  return Array.from(grouped.values());
+}
+
+function formatDateTime(value) {
+  if (!value) return "Sin fecha";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Sin fecha";
+  return new Intl.DateTimeFormat("es-MX", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(date);
+}
+
+function renderOrders() {
+  if (!elements.ordersList) return;
+  elements.ordersList.innerHTML = "";
+
+  if (!state.orders.length) {
+    elements.ordersList.innerHTML = `<div class="empty-state">Aun no hay pedidos registrados.</div>`;
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  state.orders.forEach((order) => {
+    const article = document.createElement("article");
+    article.className = "order-item";
+    article.innerHTML = `
+      <div class="order-item-head">
+        <div>
+          <p class="panel-label">Pedido #${order.id}</p>
+          <h3>${escapeHtml(formatDateTime(order.createdAt))}</h3>
+        </div>
+        <span class="order-status">${escapeHtml(order.status)}</span>
+      </div>
+      <p class="order-meta">${escapeHtml(`${order.itemCount} producto(s) | ${currency.format(order.total || 0)}`)}</p>
+      <div class="order-lines">
+        ${order.items.map((item) => `
+          <div class="order-line">
+            <strong>${escapeHtml(item.name)}</strong>
+            <span>x${item.quantity}</span>
+            <small>${escapeHtml(item.tone || "No visible")} | ${escapeHtml(formatPrice(item.unitPrice))}</small>
+          </div>
+        `).join("")}
+      </div>
+      <div class="order-actions">
+        <button class="admin-edit order-pdf" type="button">PDF</button>
+        <button class="admin-delete order-delete" type="button">Eliminar</button>
+      </div>
+    `;
+    article.querySelector(".order-pdf").addEventListener("click", () => exportOrderPdf(order.id));
+    article.querySelector(".order-delete").addEventListener("click", () => deleteOrderRecord(order.id));
+    fragment.appendChild(article);
+  });
+
+  elements.ordersList.appendChild(fragment);
+}
+
+async function loadOrders() {
+  if (!supabaseClient || !isAdminAuthenticated()) {
+    state.orders = [];
+    renderOrders();
+    return;
+  }
+
+  try {
+    state.orders = await fetchRemoteOrders();
+  } catch (error) {
+    console.error("Orders load failed", error);
+    state.orders = [];
+    showAdminStatus("No se pudieron cargar los pedidos", "error");
+  }
+  renderOrders();
+}
+
+function renderOrderPdf(order) {
+  printOrderSnapshot = order;
+  elements.printCatalog.hidden = false;
+  elements.printCatalog.classList.add("is-order-sheet");
+  elements.printCatalog.innerHTML = `
+    <section class="order-sheet">
+      <header class="order-sheet-header">
+        <div>
+          <p>Rose Gold Luxury</p>
+          <h1>Cotizacion de pedido</h1>
+        </div>
+        <div class="order-sheet-meta">
+          <span>Pedido #${escapeHtml(order.id)}</span>
+          <span>${escapeHtml(formatDateTime(order.createdAt))}</span>
+          <span>${escapeHtml(order.status)}</span>
+        </div>
+      </header>
+      <section class="order-sheet-body">
+        <div class="order-sheet-lines">
+          ${order.items.map((item) => `
+            <article class="order-sheet-line">
+              <div>
+                <h2>${escapeHtml(item.name)}</h2>
+                <p>${escapeHtml(item.brand)} | ${escapeHtml(item.category)}</p>
+                <small>Tono: ${escapeHtml(item.tone || "No visible")}</small>
+              </div>
+              <div class="order-sheet-numbers">
+                <strong>x${item.quantity}</strong>
+                <span>${escapeHtml(formatPrice(item.unitPrice))}</span>
+              </div>
+            </article>
+          `).join("")}
+        </div>
+        <footer class="order-sheet-footer">
+          <div>
+            <p>Total de piezas</p>
+            <strong>${escapeHtml(order.itemCount)}</strong>
+          </div>
+          <div>
+            <p>Total estimado</p>
+            <strong>${escapeHtml(currency.format(order.total || 0))}</strong>
+          </div>
+        </footer>
+      </section>
+    </section>
+  `;
+}
+
+function exportOrderPdf(orderId) {
+  const order = state.orders.find((item) => Number(item.id) === Number(orderId));
+  if (!order) return;
+  restoreAdminAfterPrint = state.adminMode;
+  renderOrderPdf(order);
+  document.body.classList.add("print-mode");
+  window.setTimeout(() => {
+    window.print();
+  }, 60);
+}
+
+async function deleteOrderRecord(orderId) {
+  if (!window.confirm("Eliminar este pedido?")) return;
+
+  try {
+    await deleteRemoteOrder(orderId);
+    state.orders = state.orders.filter((order) => Number(order.id) !== Number(orderId));
+    renderOrders();
+    showAdminStatus("Pedido eliminado", "success");
+  } catch (error) {
+    console.error("Order delete failed", error);
+    showAdminStatus("No se pudo eliminar el pedido", "error");
+  }
+}
+
 function openImageModal(src, link = "") {
   if (!src) return;
   const probe = new Image();
@@ -490,7 +802,69 @@ function closeMediaModal() {
   setImagePreview(elements.mediaImagePreviewImg, elements.mediaImagePreviewEmpty, "");
 }
 
+async function openScannerModal() {
+  if (!("BarcodeDetector" in window) || !navigator.mediaDevices?.getUserMedia) {
+    showAdminStatus("Tu navegador no soporta escaneo", "error");
+    return;
+  }
+
+  try {
+    scannerStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" } },
+      audio: false
+    });
+    elements.scannerVideo.srcObject = scannerStream;
+    elements.scannerModal.hidden = false;
+    elements.scannerHint.textContent = "Apunta la camara al codigo de barras.";
+
+    const detector = new window.BarcodeDetector({
+      formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39"]
+    });
+
+    scannerIntervalId = window.setInterval(async () => {
+      try {
+        const codes = await detector.detect(elements.scannerVideo);
+        if (!codes.length) return;
+        const rawValue = String(codes[0].rawValue || "").trim();
+        if (!rawValue) return;
+
+        const product = products.find((item) => String(item.barcode || "").trim() === rawValue);
+        if (!product) {
+          elements.scannerHint.textContent = `Codigo no encontrado: ${rawValue}`;
+          return;
+        }
+
+        addToCart(product.id);
+        closeScannerModal();
+        showAdminStatus(`Agregado: ${product.name}`, "success");
+      } catch {
+        // errores transitorios del detector
+      }
+    }, 700);
+  } catch {
+    showAdminStatus("No se pudo abrir la camara", "error");
+  }
+}
+
+function closeScannerModal() {
+  if (scannerIntervalId) {
+    window.clearInterval(scannerIntervalId);
+    scannerIntervalId = null;
+  }
+  if (scannerStream) {
+    scannerStream.getTracks().forEach((track) => track.stop());
+    scannerStream = null;
+  }
+  if (elements.scannerVideo) {
+    elements.scannerVideo.srcObject = null;
+  }
+  if (elements.scannerModal) {
+    elements.scannerModal.hidden = true;
+  }
+}
+
 function openCart() {
+  closeOrdersDrawer();
   elements.cartDrawer.classList.add("open");
   elements.cartDrawer.setAttribute("aria-hidden", "false");
   elements.backdrop.hidden = false;
@@ -499,7 +873,9 @@ function openCart() {
 function closeCart() {
   elements.cartDrawer.classList.remove("open");
   elements.cartDrawer.setAttribute("aria-hidden", "true");
-  elements.backdrop.hidden = true;
+  if (!elements.adminDrawer.classList.contains("open") && !elements.ordersDrawer.classList.contains("open")) {
+    elements.backdrop.hidden = true;
+  }
 }
 
 function openLogin() {
@@ -519,6 +895,7 @@ function openAdmin() {
   document.body.classList.add("admin-mode");
   renderAdminList();
   renderProducts();
+  loadOrders();
 }
 
 function closeAdmin() {
@@ -526,6 +903,7 @@ function closeAdmin() {
   elements.adminBar.hidden = true;
   document.body.classList.remove("admin-mode");
   closeAdminDrawer();
+  closeOrdersDrawer();
   renderProducts();
 }
 
@@ -625,6 +1003,7 @@ function saveProductFromCard(card) {
     brand: values.brand || current.brand,
     category: values.category || current.category,
     type: values.type || current.type,
+    barcode: current.barcode || "",
     description: values.description || current.description,
     stock: parseStock(values.availability, current.stock),
     tone: values.tone || "",
@@ -690,11 +1069,12 @@ async function createBlankProduct() {
   const nextId = products.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0) + 1;
   const draft = normalizeProduct({
     id: nextId,
-    name: "Nuevo producto",
-    brand: "Marca",
-    category: "Categoria",
-    type: "Tipo",
-    description: "Descripcion",
+    name: "",
+    brand: "",
+    category: "",
+    type: "",
+    barcode: "",
+    description: "",
     stock: 1,
     tone: "",
     price: null,
@@ -850,12 +1230,17 @@ function renderProducts() {
     }
 
     const addToCartButton = node.querySelector(".add-to-cart");
+    const addToCartInlineButton = node.querySelector(".add-to-cart-inline");
     const buyNowLink = node.querySelector(".buy-now");
     addToCartButton.disabled = !isAvailable(product);
+    addToCartInlineButton.disabled = !isAvailable(product);
+    addToCartInlineButton.textContent = isAvailable(product) ? "Agregar" : "Agotado";
+    addToCartInlineButton.classList.toggle("is-disabled", !isAvailable(product));
     buyNowLink.href = isAvailable(product) ? buildWhatsappLink([product]) : "#";
     buyNowLink.textContent = isAvailable(product) ? "Pedir ahora" : "Agotado";
     buyNowLink.classList.toggle("is-disabled", !isAvailable(product));
     addToCartButton.addEventListener("click", () => addToCart(product.id));
+    addToCartInlineButton.addEventListener("click", () => addToCart(product.id));
     fragment.appendChild(node);
   });
 
@@ -868,6 +1253,7 @@ function addToCart(productId) {
   if (!isAvailable(product)) return;
   state.cart.push(product);
   renderCart();
+  showAdminStatus("Producto agregado al pedido", "success");
 }
 
 function removeFromCart(index) {
@@ -876,25 +1262,30 @@ function removeFromCart(index) {
 }
 
 function renderCart() {
+  const groupedCart = groupCartItems(state.cart);
   elements.heroCartCount.textContent = String(state.cart.length);
   elements.cartItems.innerHTML = "";
 
-  if (!state.cart.length) {
+  if (!groupedCart.length) {
     elements.cartItems.innerHTML = `<div class="empty-state">Aun no agregas productos. Usa "Agregar" para armar el pedido.</div>`;
   } else {
     const fragment = document.createDocumentFragment();
-    state.cart.forEach((item, index) => {
+    groupedCart.forEach((item) => {
       const wrapper = document.createElement("article");
       wrapper.className = "cart-item";
       wrapper.innerHTML = `
-        <h3>${item.name}</h3>
-        <p>${item.brand} | ${item.category}</p>
+        <h3>${escapeHtml(item.name)}</h3>
+        <p>${escapeHtml(item.brand)} | ${escapeHtml(item.category)}</p>
+        <p>Cantidad: ${item.quantity}</p>
         <p>Estado: ${formatAvailability(item.stock)}</p>
-        <p>Tono: ${item.tone || "No visible"}</p>
-        <p>Precio: ${formatPrice(item.price)}</p>
+        <p>Tono: ${escapeHtml(item.tone || "No visible")}</p>
+        <p>Precio: ${formatPrice(item.unitPrice)}</p>
         <button class="cart-remove" type="button">Quitar</button>
       `;
-      wrapper.querySelector(".cart-remove").addEventListener("click", () => removeFromCart(index));
+      wrapper.querySelector(".cart-remove").addEventListener("click", () => {
+        const index = state.cart.findIndex((cartItem) => Number(cartItem.id) === Number(item.productId));
+        if (index >= 0) removeFromCart(index);
+      });
       fragment.appendChild(wrapper);
     });
     elements.cartItems.appendChild(fragment);
@@ -905,7 +1296,8 @@ function renderCart() {
   elements.cartDisclaimer.textContent = summary.missingPrices
     ? "Hay productos sin precio cargado. El mensaje los enviara como precio por confirmar."
     : "Todos los productos del pedido tienen precio cargado.";
-  elements.sendOrder.disabled = !state.cart.length;
+  elements.sendOrder.disabled = !state.cart.length || state.orderSubmitting;
+  elements.sendOrder.textContent = state.orderSubmitting ? "Guardando pedido..." : "Enviar pedido por WhatsApp";
 }
 
 function syncFilters() {
@@ -931,6 +1323,61 @@ async function initializeCatalog() {
   elements.adminBar.hidden = true;
   renderProducts();
   renderCart();
+  renderOrders();
+}
+
+async function submitOrder() {
+  if (!state.cart.length || state.orderSubmitting) return;
+
+  const groupedCart = groupCartItems(state.cart);
+  const whatsappUrl = buildWhatsappLink(state.cart);
+  const whatsappMessage = decodeURIComponent(whatsappUrl.split("?text=")[1] || "");
+  const orderPayload = {
+    total: getCartSummary().total,
+    item_count: groupedCart.reduce((sum, item) => sum + item.quantity, 0),
+    whatsapp_message: whatsappMessage,
+    status: "nuevo"
+  };
+  const itemPayload = groupedCart.map((item) => ({
+    product_id: item.productId,
+    product_name: item.name,
+    brand: item.brand,
+    category: item.category,
+    tone: item.tone || "",
+    quantity: item.quantity,
+    unit_price: item.unitPrice
+  }));
+  const pendingWindow = window.open("", "_blank");
+
+  try {
+    state.orderSubmitting = true;
+    renderCart();
+    let orderId = createOrderId();
+    if (supabaseClient) {
+      orderId = await createRemoteOrder(orderPayload, itemPayload);
+    }
+    const nextOrder = buildOrderRecord(orderId, groupedCart, orderPayload);
+    state.orders.unshift(nextOrder);
+    renderOrders();
+    if (pendingWindow) {
+      pendingWindow.location.href = whatsappUrl;
+      pendingWindow.opener = null;
+    } else {
+      window.location.href = whatsappUrl;
+    }
+    state.cart = [];
+    renderCart();
+    showAdminStatus("Pedido registrado", "success");
+  } catch (error) {
+    console.error("Order submit failed", error);
+    if (pendingWindow && !pendingWindow.closed) {
+      pendingWindow.close();
+    }
+    showAdminStatus("No se pudo registrar el pedido", "error");
+  } finally {
+    state.orderSubmitting = false;
+    renderCart();
+  }
 }
 
 elements.searchInput.addEventListener("input", syncFilters);
@@ -955,12 +1402,17 @@ elements.closeCart.addEventListener("click", closeCart);
 elements.backdrop.addEventListener("click", () => {
   closeCart();
   closeAdminDrawer();
+  closeOrdersDrawer();
 });
 elements.imageModalClose.addEventListener("click", closeImageModal);
 elements.imageModalBackdrop.addEventListener("click", closeImageModal);
 elements.mediaModalClose.addEventListener("click", closeMediaModal);
 elements.mediaModalBackdrop.addEventListener("click", closeMediaModal);
 elements.mediaModalCancel.addEventListener("click", closeMediaModal);
+elements.openScanner.addEventListener("click", openScannerModal);
+elements.closeScanner.addEventListener("click", closeScannerModal);
+elements.scannerCancel.addEventListener("click", closeScannerModal);
+elements.scannerModalBackdrop.addEventListener("click", closeScannerModal);
 elements.adminImageUrl.addEventListener("input", () => {
   if (!elements.adminImageFile.files?.length) {
     setImagePreview(elements.adminImagePreviewImg, elements.adminImagePreviewEmpty, elements.adminImageUrl.value.trim());
@@ -1000,6 +1452,11 @@ elements.mediaImageFile.addEventListener("change", async () => {
   }
 });
 elements.closeAdmin.addEventListener("click", closeAdminDrawer);
+elements.adminOpenOrders.addEventListener("click", async () => {
+  await loadOrders();
+  openOrdersDrawer();
+});
+elements.closeOrders.addEventListener("click", closeOrdersDrawer);
 elements.adminExportPdf.addEventListener("click", exportCatalogPdf);
 elements.adminForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -1018,6 +1475,7 @@ elements.adminForm.addEventListener("submit", async (event) => {
     brand: elements.adminBrand.value.trim(),
     category: elements.adminCategory.value.trim(),
     type: elements.adminType.value.trim(),
+    barcode: elements.adminBarcode.value.trim(),
     description: elements.adminDescription.value.trim(),
     tone: elements.adminTone.value.trim(),
     stock: 1,
@@ -1138,6 +1596,8 @@ document.addEventListener("keydown", (event) => {
     closeCart();
     closeLogin();
     closeAdminDrawer();
+    closeOrdersDrawer();
+    closeScannerModal();
     closeImageModal();
     closeMediaModal();
   }
@@ -1145,6 +1605,16 @@ document.addEventListener("keydown", (event) => {
 window.addEventListener("afterprint", () => {
   document.body.classList.remove("print-mode");
   elements.printCatalog.hidden = true;
+  elements.printCatalog.classList.remove("is-order-sheet");
+  elements.printCatalog.innerHTML = `
+    <header class="print-header">
+      <p>Rose Gold Luxury</p>
+      <h1>Catalogo Digital</h1>
+    </header>
+    <section class="print-grid" id="print-grid"></section>
+  `;
+  elements.printGrid = document.querySelector("#print-grid");
+  printOrderSnapshot = null;
   if (savedPrintView) {
     state.search = savedPrintView.search;
     state.category = savedPrintView.category;
@@ -1161,10 +1631,6 @@ window.addEventListener("afterprint", () => {
   }
   restoreAdminAfterPrint = false;
 });
-elements.sendOrder.addEventListener("click", () => {
-  if (state.cart.length) {
-    window.open(buildWhatsappLink(state.cart), "_blank", "noopener,noreferrer");
-  }
-});
+elements.sendOrder.addEventListener("click", submitOrder);
 
 initializeCatalog();
