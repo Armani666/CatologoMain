@@ -954,12 +954,55 @@ body:not(.admin-mode) .editable-field {
   box-shadow: 0 24px 60px rgba(65, 33, 27, 0.2);
 }
 
-.scanner-video {
+.scanner-reader {
   width: 100%;
-  aspect-ratio: 4 / 3;
+  min-height: 320px;
+  border-radius: 18px;
+  background: rgba(20, 13, 12, 0.04);
+  overflow: hidden;
+}
+
+.scanner-reader video {
+  width: 100% !important;
   border-radius: 18px;
   background: #140d0c;
-  object-fit: cover;
+}
+
+.scanner-reader section {
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.scanner-reader button,
+.scanner-reader select,
+.scanner-reader input[type="file"] {
+  font: inherit !important;
+}
+
+.scanner-reader button {
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: rgba(164, 91, 82, 0.14) !important;
+  color: var(--accent-strong) !important;
+  padding: 10px 14px !important;
+  cursor: pointer !important;
+}
+
+.scanner-reader select {
+  min-height: 40px;
+  border-radius: 12px !important;
+  border: 1px solid rgba(73, 40, 31, 0.08) !important;
+  background: rgba(255, 255, 255, 0.88) !important;
+}
+
+.scanner-reader__dashboard_section_csr,
+#scanner-reader__scan_region,
+#scanner-reader__dashboard {
+  border: 0 !important;
+}
+
+#scanner-reader img {
+  max-width: 100%;
 }
 
 .scanner-hint {

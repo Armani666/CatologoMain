@@ -185,8 +185,8 @@
         </div>
         <button class="icon-button" id="close-scanner" type="button" aria-label="Cerrar escaner">x</button>
       </div>
-      <video class="scanner-video" id="scanner-video" autoplay playsinline muted></video>
-      <p class="scanner-hint" id="scanner-hint">Apunta la camara al codigo de barras.</p>
+      <div class="scanner-reader" id="scanner-reader"></div>
+      <p class="scanner-hint" id="scanner-hint">Apunta la camara al codigo de barras o sube una imagen del codigo.</p>
       <div class="admin-actions">
         <button class="ghost-action wide" id="scanner-cancel" type="button">Cerrar</button>
       </div>
@@ -273,6 +273,7 @@
   <script src="productos.js"></script>
   <script src="productos-editados.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

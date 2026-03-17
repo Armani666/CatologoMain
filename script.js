@@ -99,7 +99,7 @@ const elements = {
   mediaModalCancel: document.querySelector("#media-modal-cancel"),
   scannerModal: document.querySelector("#scanner-modal"),
   scannerModalBackdrop: document.querySelector("#scanner-modal-backdrop"),
-  scannerVideo: document.querySelector("#scanner-video"),
+  scannerReader: document.querySelector("#scanner-reader"),
   scannerHint: document.querySelector("#scanner-hint"),
   openScanner: document.querySelector("#open-scanner"),
   closeScanner: document.querySelector("#close-scanner"),
@@ -147,8 +147,8 @@ const supabaseClient = window.supabase?.createClient
 let adminTapCount = 0;
 let currentMediaProductId = null;
 let currentAdminProductId = null;
-let scannerStream = null;
-let scannerIntervalId = null;
+let scannerUi = null;
+let scannerClosing = false;
 let restoreAdminAfterPrint = false;
 let savedPrintView = null;
 let printOrderSnapshot = null;
@@ -803,63 +803,81 @@ function closeMediaModal() {
 }
 
 async function openScannerModal() {
-  if (!("BarcodeDetector" in window) || !navigator.mediaDevices?.getUserMedia) {
-    showAdminStatus("Tu navegador no soporta escaneo", "error");
+  if (typeof window.Html5QrcodeScanner !== "function") {
+    showAdminStatus("Tu navegador no soporta escaneo aqui", "error");
     return;
   }
 
   try {
-    scannerStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: "environment" } },
-      audio: false
-    });
-    elements.scannerVideo.srcObject = scannerStream;
     elements.scannerModal.hidden = false;
-    elements.scannerHint.textContent = "Apunta la camara al codigo de barras.";
+    elements.scannerHint.textContent = "Apunta la camara al codigo de barras o sube una imagen del codigo.";
+    elements.scannerReader.innerHTML = "";
 
-    const detector = new window.BarcodeDetector({
-      formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39"]
-    });
+    const formats = window.Html5QrcodeSupportedFormats
+      ? [
+          window.Html5QrcodeSupportedFormats.EAN_13,
+          window.Html5QrcodeSupportedFormats.EAN_8,
+          window.Html5QrcodeSupportedFormats.UPC_A,
+          window.Html5QrcodeSupportedFormats.UPC_E,
+          window.Html5QrcodeSupportedFormats.CODE_128,
+          window.Html5QrcodeSupportedFormats.CODE_39
+        ]
+      : undefined;
 
-    scannerIntervalId = window.setInterval(async () => {
-      try {
-        const codes = await detector.detect(elements.scannerVideo);
-        if (!codes.length) return;
-        const rawValue = String(codes[0].rawValue || "").trim();
-        if (!rawValue) return;
+    scannerUi = new window.Html5QrcodeScanner(
+      "scanner-reader",
+      {
+        fps: 10,
+        qrbox: { width: 260, height: 140 },
+        aspectRatio: 1.777778,
+        rememberLastUsedCamera: true,
+        supportedScanTypes: window.Html5QrcodeScanType
+          ? [
+              window.Html5QrcodeScanType.SCAN_TYPE_CAMERA,
+              window.Html5QrcodeScanType.SCAN_TYPE_FILE
+            ]
+          : undefined,
+        formatsToSupport: formats
+      },
+      false
+    );
 
+    scannerUi.render(
+      (decodedText) => {
+        const rawValue = String(decodedText || "").trim();
+        if (!rawValue || scannerClosing) return;
         const product = products.find((item) => String(item.barcode || "").trim() === rawValue);
         if (!product) {
           elements.scannerHint.textContent = `Codigo no encontrado: ${rawValue}`;
           return;
         }
 
+        scannerClosing = true;
         addToCart(product.id);
-        closeScannerModal();
         showAdminStatus(`Agregado: ${product.name}`, "success");
-      } catch {
-        // errores transitorios del detector
+        closeScannerModal();
+      },
+      () => {
+        // sin ruido en cada frame fallido
       }
-    }, 700);
+    );
   } catch {
-    showAdminStatus("No se pudo abrir la camara", "error");
+    showAdminStatus("No se pudo abrir el escaner", "error");
   }
 }
 
 function closeScannerModal() {
-  if (scannerIntervalId) {
-    window.clearInterval(scannerIntervalId);
-    scannerIntervalId = null;
-  }
-  if (scannerStream) {
-    scannerStream.getTracks().forEach((track) => track.stop());
-    scannerStream = null;
-  }
-  if (elements.scannerVideo) {
-    elements.scannerVideo.srcObject = null;
-  }
+  scannerClosing = false;
   if (elements.scannerModal) {
     elements.scannerModal.hidden = true;
+  }
+  const currentScanner = scannerUi;
+  scannerUi = null;
+  if (currentScanner?.clear) {
+    currentScanner.clear().catch(() => {});
+  }
+  if (elements.scannerReader) {
+    elements.scannerReader.innerHTML = "";
   }
 }
 
