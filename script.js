@@ -1,6 +1,7 @@
 const whatsappNumber = "524791382982";
 const currency = new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" });
 const hiddenAdminClicksNeeded = 5;
+const adminInactivityMs = 4 * 60 * 1000;
 const supabaseConfig = {
   url: "https://lvsslzdxvrqgskjydwjt.supabase.co",
   anonKey: "sb_publishable_EGStQ8AySDkRHi2MjZ6AOQ_TJ5w417_",
@@ -152,6 +153,7 @@ let scannerClosing = false;
 let restoreAdminAfterPrint = false;
 let savedPrintView = null;
 let printOrderSnapshot = null;
+let adminInactivityTimeoutId = null;
 
 function createOrderId() {
   return Date.now() * 1000 + Math.floor(Math.random() * 1000);
@@ -177,6 +179,39 @@ function isAdminAuthenticated() {
 function setAdminAuthenticated(value) {
   if (value) sessionStorage.setItem("catalog_admin_session_v1", "ok");
   else sessionStorage.removeItem("catalog_admin_session_v1");
+}
+
+function clearAdminInactivityTimer() {
+  if (adminInactivityTimeoutId) {
+    window.clearTimeout(adminInactivityTimeoutId);
+    adminInactivityTimeoutId = null;
+  }
+}
+
+async function forceAdminLogout(message = "Sesion admin cerrada por inactividad") {
+  clearAdminInactivityTimer();
+  try {
+    if (supabaseClient) {
+      const client = ensureSupabase();
+      await client.auth.signOut();
+    }
+  } catch (error) {
+    console.error("Forced admin logout failed", error);
+  }
+  setAdminAuthenticated(false);
+  closeAdmin();
+  closeCart();
+  closeLogin();
+  closeOrdersDrawer();
+  showAdminStatus(message, "info");
+}
+
+function resetAdminInactivityTimer() {
+  if (!state.adminMode || !isAdminAuthenticated()) return;
+  clearAdminInactivityTimer();
+  adminInactivityTimeoutId = window.setTimeout(() => {
+    forceAdminLogout();
+  }, adminInactivityMs);
 }
 
 function normalizeProduct(product, index) {
@@ -491,8 +526,14 @@ function showAdminStatus(message, tone = "info") {
   }, 2200);
 }
 
+function setAdminBarSuppressed(value) {
+  if (!elements.adminBar) return;
+  elements.adminBar.classList.toggle("is-suppressed", Boolean(value));
+}
+
 function openAdminDrawer() {
   closeOrdersDrawer();
+  setAdminBarSuppressed(true);
   elements.adminDrawer.classList.add("open");
   elements.adminDrawer.setAttribute("aria-hidden", "false");
   elements.backdrop.hidden = false;
@@ -501,6 +542,9 @@ function openAdminDrawer() {
 function closeAdminDrawer() {
   elements.adminDrawer.classList.remove("open");
   elements.adminDrawer.setAttribute("aria-hidden", "true");
+  if (!elements.ordersDrawer.classList.contains("open")) {
+    setAdminBarSuppressed(false);
+  }
   if (!elements.cartDrawer.classList.contains("open") && !elements.ordersDrawer.classList.contains("open")) {
     elements.backdrop.hidden = true;
   }
@@ -508,6 +552,7 @@ function closeAdminDrawer() {
 
 function openOrdersDrawer() {
   closeAdminDrawer();
+  setAdminBarSuppressed(true);
   elements.ordersDrawer.classList.add("open");
   elements.ordersDrawer.setAttribute("aria-hidden", "false");
   elements.backdrop.hidden = false;
@@ -516,6 +561,9 @@ function openOrdersDrawer() {
 function closeOrdersDrawer() {
   elements.ordersDrawer.classList.remove("open");
   elements.ordersDrawer.setAttribute("aria-hidden", "true");
+  if (!elements.adminDrawer.classList.contains("open")) {
+    setAdminBarSuppressed(false);
+  }
   if (!elements.cartDrawer.classList.contains("open") && !elements.adminDrawer.classList.contains("open")) {
     elements.backdrop.hidden = true;
   }
@@ -914,15 +962,18 @@ function openAdmin() {
   renderAdminList();
   renderProducts();
   loadOrders();
+  resetAdminInactivityTimer();
 }
 
 function closeAdmin() {
   state.adminMode = false;
   elements.adminBar.hidden = true;
+  setAdminBarSuppressed(false);
   document.body.classList.remove("admin-mode");
   closeAdminDrawer();
   closeOrdersDrawer();
   renderProducts();
+  clearAdminInactivityTimer();
 }
 
 function exportCatalogPdf() {
@@ -1561,6 +1612,7 @@ elements.adminExit.addEventListener("click", async () => {
   }
   setAdminAuthenticated(false);
   closeAdmin();
+  clearAdminInactivityTimer();
 });
 elements.closeLogin.addEventListener("click", closeLogin);
 elements.loginModalBackdrop.addEventListener("click", closeLogin);
@@ -1610,6 +1662,9 @@ elements.adminTrigger.addEventListener("click", () => {
   }, 1200);
 });
 document.addEventListener("keydown", (event) => {
+  if (state.adminMode && isAdminAuthenticated()) {
+    resetAdminInactivityTimer();
+  }
   if (event.key === "Escape") {
     closeCart();
     closeLogin();
@@ -1619,6 +1674,13 @@ document.addEventListener("keydown", (event) => {
     closeImageModal();
     closeMediaModal();
   }
+});
+["pointerdown", "pointermove", "scroll", "touchstart", "click"].forEach((eventName) => {
+  document.addEventListener(eventName, () => {
+    if (state.adminMode && isAdminAuthenticated()) {
+      resetAdminInactivityTimer();
+    }
+  }, { passive: true });
 });
 window.addEventListener("afterprint", () => {
   document.body.classList.remove("print-mode");
