@@ -18,6 +18,7 @@ body {
   min-height: 100vh;
   font-family: "Manrope", sans-serif;
   color: var(--ink);
+  overflow-x: hidden;
   background:
     radial-gradient(circle at top left, rgba(255, 220, 202, 0.52), transparent 30%),
     radial-gradient(circle at top right, rgba(255, 240, 217, 0.58), transparent 28%),
@@ -598,14 +599,17 @@ body:not(.admin-mode) .editable-field {
   width: min(520px, 100%);
   height: 100vh;
   padding: 18px;
-  display: grid;
-  grid-template-rows: auto auto 1fr;
+  display: flex;
+  flex-direction: column;
   gap: 14px;
   transform: translateX(-100%);
   transition: transform .28s ease;
   background: rgba(255, 250, 246, 0.98);
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
 }
 .admin-drawer.open { transform: translateX(0); }
 .orders-drawer {
@@ -616,14 +620,17 @@ body:not(.admin-mode) .editable-field {
   width: min(460px, 100%);
   height: 100vh;
   padding: 18px;
-  display: grid;
-  grid-template-rows: auto auto 1fr;
+  display: flex;
+  flex-direction: column;
   gap: 14px;
   transform: translateX(100%);
   transition: transform .28s ease;
   background: rgba(255, 250, 246, 0.98);
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
 }
 .orders-drawer.open { transform: translateX(0); }
 .cart-header {
@@ -674,6 +681,8 @@ body:not(.admin-mode) .editable-field {
 .admin-form {
   display: grid;
   gap: 10px;
+  min-height: 0;
+  flex: 0 0 auto;
 }
 .admin-helper {
   margin: 0;
@@ -735,6 +744,9 @@ body:not(.admin-mode) .editable-field {
   flex-direction: column;
   gap: 10px;
   padding-right: 4px;
+  min-height: 0;
+  flex: 1 1 auto;
+  margin-top: 2px;
 }
 .orders-list {
   overflow: auto;
@@ -742,6 +754,8 @@ body:not(.admin-mode) .editable-field {
   flex-direction: column;
   gap: 12px;
   padding-right: 4px;
+  min-height: 0;
+  flex: 1 1 auto;
 }
 .admin-item {
   padding: 12px;
