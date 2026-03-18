@@ -190,6 +190,19 @@ function normalizeExternalUrl(value) {
   return `https://${trimmed.replace(/^\/+/, "")}`;
 }
 
+function findProductByBarcode(value) {
+  const rawValue = String(value || "").trim();
+  const normalizedValue = normalizeBarcode(rawValue);
+  if (!rawValue && !normalizedValue) return null;
+
+  return products.find((item) => {
+    const savedRaw = String(item.barcode || "").trim();
+    const savedNormalized = normalizeBarcode(savedRaw);
+    return (savedNormalized && savedNormalized === normalizedValue)
+      || (savedRaw && savedRaw === rawValue);
+  }) || null;
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -1218,6 +1231,7 @@ async function openScannerModal() {
   }
 
   try {
+    await loadProducts(false);
     elements.scannerModal.hidden = false;
     elements.scannerHint.textContent = "Apunta la camara al codigo de barras o sube una imagen del codigo.";
     elements.scannerReader.innerHTML = "";
@@ -1229,7 +1243,10 @@ async function openScannerModal() {
           window.Html5QrcodeSupportedFormats.UPC_A,
           window.Html5QrcodeSupportedFormats.UPC_E,
           window.Html5QrcodeSupportedFormats.CODE_128,
-          window.Html5QrcodeSupportedFormats.CODE_39
+          window.Html5QrcodeSupportedFormats.CODE_39,
+          window.Html5QrcodeSupportedFormats.CODE_93,
+          window.Html5QrcodeSupportedFormats.CODABAR,
+          window.Html5QrcodeSupportedFormats.ITF
         ]
       : undefined;
 
@@ -1237,15 +1254,9 @@ async function openScannerModal() {
 
     const handleBarcodeResult = (decodedText) => {
       const rawValue = String(decodedText || "").trim();
-      const normalizedValue = normalizeBarcode(rawValue);
-      if ((!rawValue && !normalizedValue) || scannerClosing) return;
+      if ((!rawValue && !normalizeBarcode(rawValue)) || scannerClosing) return;
 
-      const product = products.find((item) => {
-        const savedRaw = String(item.barcode || "").trim();
-        const savedNormalized = normalizeBarcode(savedRaw);
-        return (savedNormalized && savedNormalized === normalizedValue)
-          || (savedRaw && savedRaw === rawValue);
-      });
+      const product = findProductByBarcode(rawValue);
 
       if (!product) {
         elements.scannerHint.textContent = `Codigo detectado: ${rawValue}. No encontrado.`;
