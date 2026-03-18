@@ -509,13 +509,12 @@ async function deleteRemoteProduct(productId) {
   if (error) throw error;
 }
 
-async function uploadPendingImages(kind, productId, productName = "") {
-  const uploads = getPendingUploads(kind);
-  if (!uploads.length) return new Map();
-
+async function uploadFilesToStorage(files, productId, productName = "") {
+  const uploads = Array.from(files || []).map((file) => ({ file }));
+  if (!uploads.length) return [];
   const client = ensureSupabase();
   const bucket = client.storage.from(productImagesBucket);
-  const uploadedUrls = new Map();
+  const uploadedUrls = [];
 
   for (let index = 0; index < uploads.length; index += 1) {
     const upload = uploads[index];
@@ -530,10 +529,28 @@ async function uploadPendingImages(kind, productId, productName = "") {
     });
     if (error) throw error;
     const { data } = bucket.getPublicUrl(filePath);
-    uploadedUrls.set(upload.previewUrl, data.publicUrl);
+    uploadedUrls.push(data.publicUrl);
   }
 
   return uploadedUrls;
+}
+
+async function uploadPendingImages(kind, productId, productName = "") {
+  const uploads = getPendingUploads(kind);
+  if (!uploads.length) return new Map();
+
+  const uploadedUrls = await uploadFilesToStorage(
+    uploads.map((upload) => upload.file),
+    productId,
+    productName
+  );
+  const mappedUrls = new Map();
+  uploads.forEach((upload, index) => {
+    if (uploadedUrls[index]) {
+      mappedUrls.set(upload.previewUrl, uploadedUrls[index]);
+    }
+  });
+  return mappedUrls;
 }
 
 function replacePendingImagesWithUploadedUrls(gallery, uploadedUrls) {
@@ -1870,10 +1887,18 @@ elements.adminExportPdf.addEventListener("click", exportCatalogPdf);
 elements.adminForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const nextId = currentAdminProductId || (products.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0) + 1);
+  const selectedFiles = Array.from(elements.adminImageFile.files || []);
+  const persistedGallery = getPersistedGallery(adminDraftGallery);
   let galleryUrls = mergeImageGallery(elements.adminImageUrl.value.trim(), adminDraftGallery);
   try {
-    const uploadedUrls = await uploadPendingImages("admin", nextId, elements.adminName.value.trim());
-    galleryUrls = replacePendingImagesWithUploadedUrls(galleryUrls, uploadedUrls);
+    if (selectedFiles.length) {
+      const uploadedUrls = await uploadFilesToStorage(selectedFiles, nextId, elements.adminName.value.trim());
+      const preservedGallery = persistedGallery.filter((item) => !isInlineImageData(item));
+      galleryUrls = mergeImageGallery(uploadedUrls[0] || preservedGallery[0] || "", [...uploadedUrls, ...preservedGallery]);
+    } else {
+      const uploadedUrls = await uploadPendingImages("admin", nextId, elements.adminName.value.trim());
+      galleryUrls = replacePendingImagesWithUploadedUrls(galleryUrls, uploadedUrls);
+    }
   } catch (error) {
     console.error("Admin image upload failed", error);
     showAdminStatus("No se pudo subir la imagen", "error");
@@ -1930,10 +1955,22 @@ elements.mediaForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (currentMediaProductId === null) return;
   let imageValue = elements.mediaImageUrl.value.trim();
+  const selectedFiles = Array.from(elements.mediaImageFile.files || []);
+  const persistedGallery = getPersistedGallery(mediaDraftGallery);
   let galleryUrls = mergeImageGallery(mediaDraftGallery[0] || imageValue, mediaDraftGallery);
   try {
-    const uploadedUrls = await uploadPendingImages("media", currentMediaProductId, products.find((item) => Number(item.id) === Number(currentMediaProductId))?.name || "");
-    galleryUrls = replacePendingImagesWithUploadedUrls(galleryUrls, uploadedUrls);
+    if (selectedFiles.length) {
+      const uploadedUrls = await uploadFilesToStorage(
+        selectedFiles,
+        currentMediaProductId,
+        products.find((item) => Number(item.id) === Number(currentMediaProductId))?.name || ""
+      );
+      const preservedGallery = persistedGallery.filter((item) => !isInlineImageData(item));
+      galleryUrls = mergeImageGallery(uploadedUrls[0] || preservedGallery[0] || "", [...uploadedUrls, ...preservedGallery]);
+    } else {
+      const uploadedUrls = await uploadPendingImages("media", currentMediaProductId, products.find((item) => Number(item.id) === Number(currentMediaProductId))?.name || "");
+      galleryUrls = replacePendingImagesWithUploadedUrls(galleryUrls, uploadedUrls);
+    }
     imageValue = galleryUrls[0] || "";
   } catch (error) {
     console.error("Media image upload failed", error);
