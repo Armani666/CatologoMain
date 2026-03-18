@@ -10,6 +10,7 @@ create table if not exists public.products (
   tone text not null default '',
   price numeric null,
   image_url text not null default '',
+  image_urls jsonb not null default '[]'::jsonb,
   reference_url text not null default '',
   is_active boolean not null default true,
   image_key text not null default '',
@@ -22,6 +23,9 @@ add column if not exists is_active boolean not null default true;
 
 alter table public.products
 add column if not exists barcode text not null default '';
+
+alter table public.products
+add column if not exists image_urls jsonb not null default '[]'::jsonb;
 
 create or replace function public.set_products_updated_at()
 returns trigger
@@ -42,14 +46,16 @@ execute function public.set_products_updated_at();
 
 alter table public.products enable row level security;
 grant usage on schema public to anon, authenticated;
-grant select on public.products to anon, authenticated;
+revoke select on public.products from anon;
+grant select on public.products to authenticated;
 grant insert, update, delete on public.products to authenticated;
 
 drop policy if exists "products_public_read" on public.products;
-create policy "products_public_read"
+drop policy if exists "products_authenticated_read" on public.products;
+create policy "products_authenticated_read"
 on public.products
 for select
-to anon, authenticated
+to authenticated
 using (true);
 
 drop policy if exists "products_public_write" on public.products;

@@ -9,6 +9,7 @@ const supabaseConfig = {
   ordersTable: "orders",
   orderItemsTable: "order_items"
 };
+const catalogApiPath = "/api/catalogo";
 const fieldPlaceholders = {
   category: "Categoria",
   brand: "Marca",
@@ -20,6 +21,8 @@ const fieldPlaceholders = {
   tone: "Tono",
   price: "Precio"
 };
+
+const imageGallerySeparator = /\r?\n|,/;
 
 const initialCatalogSource = Array.isArray(window.CATALOG_PRODUCTS_OVERRIDE)
   ? window.CATALOG_PRODUCTS_OVERRIDE
@@ -39,6 +42,7 @@ const baseProducts = initialCatalogSource.map((product, index) => ({
   tone: product.tone || "",
   price: typeof product.price === "number" && !Number.isNaN(product.price) ? product.price : null,
   imageUrl: product.imageUrl || "",
+  imageUrls: Array.isArray(product.imageUrls) ? product.imageUrls.filter(Boolean) : (product.imageUrl ? [product.imageUrl] : []),
   referenceUrl: product.referenceUrl || "",
   isActive: typeof product.isActive === "boolean" ? product.isActive : true,
   imageKey: product.imageKey || `${product.name || ""}__${product.category || ""}__${product.type || ""}`
@@ -86,17 +90,22 @@ const elements = {
   imageModal: document.querySelector("#image-modal"),
   imageModalBackdrop: document.querySelector("#image-modal-backdrop"),
   imageModalClose: document.querySelector("#image-modal-close"),
+  imageModalPrev: document.querySelector("#image-modal-prev"),
+  imageModalNext: document.querySelector("#image-modal-next"),
   imageModalImg: document.querySelector("#image-modal-img"),
+  imageModalThumbs: document.querySelector("#image-modal-thumbs"),
   imageModalLink: document.querySelector("#image-modal-link"),
   mediaModal: document.querySelector("#media-modal"),
   mediaModalBackdrop: document.querySelector("#media-modal-backdrop"),
   mediaModalClose: document.querySelector("#media-modal-close"),
   mediaForm: document.querySelector("#media-form"),
   mediaImageUrl: document.querySelector("#media-image-url"),
+  mediaImageGallery: document.querySelector("#media-image-gallery"),
   mediaImageFile: document.querySelector("#media-image-file"),
   mediaReferenceUrl: document.querySelector("#media-reference-url"),
   mediaImagePreviewImg: document.querySelector("#media-image-preview-img"),
   mediaImagePreviewEmpty: document.querySelector("#media-image-preview-empty"),
+  mediaGalleryManager: document.querySelector("#media-gallery-manager"),
   mediaModalCancel: document.querySelector("#media-modal-cancel"),
   scannerModal: document.querySelector("#scanner-modal"),
   scannerModalBackdrop: document.querySelector("#scanner-modal-backdrop"),
@@ -131,10 +140,12 @@ const elements = {
   adminTone: document.querySelector("#admin-tone"),
   adminPrice: document.querySelector("#admin-price"),
   adminImageUrl: document.querySelector("#admin-image-url"),
+  adminImageGallery: document.querySelector("#admin-image-gallery"),
   adminImageFile: document.querySelector("#admin-image-file"),
   adminReferenceUrl: document.querySelector("#admin-reference-url"),
   adminImagePreviewImg: document.querySelector("#admin-image-preview-img"),
   adminImagePreviewEmpty: document.querySelector("#admin-image-preview-empty"),
+  adminGalleryManager: document.querySelector("#admin-gallery-manager"),
   adminActive: document.querySelector("#admin-active"),
   openCart: document.querySelector("#open-cart"),
   closeCart: document.querySelector("#close-cart"),
@@ -154,6 +165,10 @@ let restoreAdminAfterPrint = false;
 let savedPrintView = null;
 let printOrderSnapshot = null;
 let adminInactivityTimeoutId = null;
+let currentImageGallery = [];
+let currentImageIndex = 0;
+let adminDraftGallery = [];
+let mediaDraftGallery = [];
 
 function createOrderId() {
   return Date.now() * 1000 + Math.floor(Math.random() * 1000);
@@ -170,6 +185,94 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll("\"", "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function parseImageGallery(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
+  return String(value || "")
+    .split(imageGallerySeparator)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function readFilesAsDataUrls(files) {
+  return Promise.all(Array.from(files || []).map((file) => readFileAsDataUrl(file)));
+}
+
+function mergeImageGallery(primaryImage, gallery) {
+  const merged = [];
+  const seen = new Set();
+  [primaryImage, ...(gallery || [])].forEach((item) => {
+    const value = String(item || "").trim();
+    if (!value || seen.has(value)) return;
+    seen.add(value);
+    merged.push(value);
+  });
+  return merged;
+}
+
+function syncGalleryField(kind) {
+  const gallery = kind === "admin" ? adminDraftGallery : mediaDraftGallery;
+  const urlInput = kind === "admin" ? elements.adminImageUrl : elements.mediaImageUrl;
+  const galleryField = kind === "admin" ? elements.adminImageGallery : elements.mediaImageGallery;
+  const previewImg = kind === "admin" ? elements.adminImagePreviewImg : elements.mediaImagePreviewImg;
+  const previewEmpty = kind === "admin" ? elements.adminImagePreviewEmpty : elements.mediaImagePreviewEmpty;
+  urlInput.value = gallery[0] || "";
+  galleryField.value = gallery.join("\n");
+  setImagePreview(previewImg, previewEmpty, gallery[0] || "");
+}
+
+function setDraftGallery(kind, gallery) {
+  const normalized = mergeImageGallery("", gallery);
+  if (kind === "admin") {
+    adminDraftGallery = normalized;
+  } else {
+    mediaDraftGallery = normalized;
+  }
+  syncGalleryField(kind);
+  renderGalleryManager(kind);
+}
+
+function moveDraftImageToFront(kind, index) {
+  const gallery = [...(kind === "admin" ? adminDraftGallery : mediaDraftGallery)];
+  if (index < 0 || index >= gallery.length) return;
+  const [selected] = gallery.splice(index, 1);
+  gallery.unshift(selected);
+  setDraftGallery(kind, gallery);
+}
+
+function removeDraftImage(kind, index) {
+  const gallery = [...(kind === "admin" ? adminDraftGallery : mediaDraftGallery)];
+  if (index < 0 || index >= gallery.length) return;
+  gallery.splice(index, 1);
+  setDraftGallery(kind, gallery);
+}
+
+function renderGalleryManager(kind) {
+  const gallery = kind === "admin" ? adminDraftGallery : mediaDraftGallery;
+  const container = kind === "admin" ? elements.adminGalleryManager : elements.mediaGalleryManager;
+  if (!container) return;
+  if (!gallery.length) {
+    container.innerHTML = `<p class="gallery-empty">Sube varias imagenes y elige la portada.</p>`;
+    return;
+  }
+  container.innerHTML = gallery.map((image, index) => `
+    <article class="gallery-item ${index === 0 ? "is-primary" : ""}">
+      ${index === 0 ? `<span class="gallery-badge">Portada</span>` : ""}
+      <img src="${escapeHtml(image)}" alt="">
+      <p class="gallery-caption">${index === 0 ? "Imagen principal" : `Imagen ${index + 1}`}</p>
+      <div class="gallery-item-actions">
+        <button class="gallery-btn" type="button" data-role="primary" data-index="${index}">${index === 0 ? "Portada actual" : "Usar de portada"}</button>
+        <button class="gallery-btn is-danger" type="button" data-role="remove" data-index="${index}">Quitar</button>
+      </div>
+    </article>
+  `).join("");
+  container.querySelectorAll("[data-role='primary']").forEach((button) => {
+    button.addEventListener("click", () => moveDraftImageToFront(kind, Number(button.dataset.index || 0)));
+  });
+  container.querySelectorAll("[data-role='remove']").forEach((button) => {
+    button.addEventListener("click", () => removeDraftImage(kind, Number(button.dataset.index || 0)));
+  });
 }
 
 function makeImageKey(product) {
@@ -203,6 +306,8 @@ async function forceAdminLogout(message = "Sesion admin cerrada por inactividad"
     console.error("Forced admin logout failed", error);
   }
   setAdminAuthenticated(false);
+  await loadProducts(false);
+  refreshFilters();
   closeAdmin();
   closeCart();
   closeLogin();
@@ -234,6 +339,10 @@ function normalizeProduct(product, index) {
     price: Number.isNaN(parsedPrice) ? null : parsedPrice,
     barcode: String(product.barcode || ""),
     imageUrl: product.imageUrl || "",
+    imageUrls: mergeImageGallery(
+      product.imageUrl || product.image_url || "",
+      product.imageUrls || product.image_urls || []
+    ),
     referenceUrl: product.referenceUrl || "",
     isActive: typeof product.isActive === "boolean"
       ? product.isActive
@@ -243,6 +352,7 @@ function normalizeProduct(product, index) {
 }
 
 function toDatabaseProduct(product) {
+  const imageUrls = mergeImageGallery(product.imageUrl || "", product.imageUrls || []);
   return {
     id: Number(product.id),
     name: product.name || "",
@@ -254,7 +364,8 @@ function toDatabaseProduct(product) {
     stock: parseStock(product.stock, 0),
     tone: product.tone || "",
     price: product.price === null || product.price === "" ? null : Number(product.price),
-    image_url: product.imageUrl || "",
+    image_url: imageUrls[0] || "",
+    image_urls: imageUrls,
     reference_url: product.referenceUrl || "",
     is_active: product.isActive !== false,
     image_key: product.imageKey || makeImageKey(product)
@@ -274,6 +385,7 @@ function fromDatabaseProduct(product, index) {
     tone: product.tone,
     price: product.price,
     imageUrl: product.image_url,
+    image_urls: product.image_urls,
     referenceUrl: product.reference_url,
     isActive: product.is_active,
     imageKey: product.image_key
@@ -303,6 +415,21 @@ async function fetchRemoteProducts() {
 
   if (error) throw error;
   return (data || []).map(fromDatabaseProduct).filter((product) => product.name && product.category && product.type);
+}
+
+async function fetchPublicProducts() {
+  const response = await fetch(catalogApiPath, {
+    headers: { Accept: "application/json" },
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error(`Catalog API responded ${response.status}`);
+  }
+
+  const payload = await response.json();
+  const items = Array.isArray(payload?.products) ? payload.products : [];
+  return items.map(fromDatabaseProduct).filter((product) => product.name && product.category && product.type);
 }
 
 async function upsertRemoteProducts(items) {
@@ -406,7 +533,7 @@ function buildOrderRecord(orderId, groupedCart, orderPayload) {
   };
 }
 
-async function loadProducts() {
+async function loadProducts(includeAll = false) {
   if (!supabaseClient) {
     products = baseProducts.map(normalizeProduct);
     state.remoteEnabled = false;
@@ -414,17 +541,37 @@ async function loadProducts() {
     return;
   }
 
+  state.remoteEnabled = true;
+
+  if (includeAll) {
+    try {
+      const remoteProducts = await fetchRemoteProducts();
+      products = remoteProducts;
+      state.remoteReady = true;
+      return;
+    } catch (error) {
+      console.error("Admin catalog load failed", error);
+    }
+  }
+
+  try {
+    const publicProducts = await fetchPublicProducts();
+    products = publicProducts;
+    state.remoteReady = true;
+    return;
+  } catch (error) {
+    console.error("Public catalog load failed", error);
+  }
+
   try {
     const remoteProducts = await fetchRemoteProducts();
     products = remoteProducts;
-    state.remoteEnabled = true;
     state.remoteReady = true;
   } catch (error) {
     console.error("Supabase load failed", error);
     products = [];
-    state.remoteEnabled = false;
     state.remoteReady = true;
-    window.alert("No se pudo cargar el catalogo compartido. Revisa la conexion con Supabase.");
+    window.alert("No se pudo cargar el catalogo. Revisa el endpoint publico y la conexion con Supabase.");
   }
 }
 
@@ -585,10 +732,11 @@ function resetAdminForm(product = null) {
   elements.adminTone.value = product?.tone || "";
   elements.adminPrice.value = product?.price ?? "";
   elements.adminImageUrl.value = product?.imageUrl || "";
+  elements.adminImageGallery.value = (product?.imageUrls || []).join("\n");
   elements.adminImageFile.value = "";
   elements.adminReferenceUrl.value = product?.referenceUrl || "";
   elements.adminActive.checked = product ? product.isActive !== false : true;
-  setImagePreview(elements.adminImagePreviewImg, elements.adminImagePreviewEmpty, product?.imageUrl || "");
+  setDraftGallery("admin", product?.imageUrls || []);
 }
 
 function renderAdminList() {
@@ -811,18 +959,47 @@ async function deleteOrderRecord(orderId) {
   }
 }
 
-function openImageModal(src, link = "") {
+function renderImageModalFrame(link = "") {
+  const src = currentImageGallery[currentImageIndex];
+  if (!src) return;
+  elements.imageModalImg.src = src;
+  elements.imageModalPrev.hidden = currentImageGallery.length <= 1;
+  elements.imageModalNext.hidden = currentImageGallery.length <= 1;
+  if (elements.imageModalThumbs) {
+    elements.imageModalThumbs.innerHTML = currentImageGallery.map((image, index) => `
+      <button class="image-modal-thumb ${index === currentImageIndex ? "is-active" : ""}" type="button" data-image-index="${index}">
+        <img src="${escapeHtml(image)}" alt="">
+      </button>
+    `).join("");
+    elements.imageModalThumbs.querySelectorAll("[data-image-index]").forEach((button) => {
+      button.addEventListener("click", () => {
+        currentImageIndex = Number(button.dataset.imageIndex || 0);
+        renderImageModalFrame(link);
+      });
+    });
+  }
+  if (link) {
+    elements.imageModalLink.href = link;
+    elements.imageModalLink.hidden = false;
+  } else {
+    elements.imageModalLink.href = "#";
+    elements.imageModalLink.hidden = true;
+  }
+}
+
+function openImageModal(images, link = "") {
+  const gallery = mergeImageGallery(
+    Array.isArray(images) ? images[0] : images,
+    Array.isArray(images) ? images : []
+  );
+  const src = gallery[0];
   if (!src) return;
   const probe = new Image();
   probe.onload = () => {
-    elements.imageModalImg.src = src;
+    currentImageGallery = gallery;
+    currentImageIndex = 0;
+    renderImageModalFrame(link);
     elements.imageModal.hidden = false;
-    if (link) {
-      elements.imageModalLink.href = link;
-      elements.imageModalLink.hidden = false;
-    } else {
-      elements.imageModalLink.hidden = true;
-    }
   };
   probe.onerror = () => {
     if (link) window.open(link, "_blank", "noopener,noreferrer");
@@ -833,6 +1010,11 @@ function openImageModal(src, link = "") {
 function closeImageModal() {
   elements.imageModal.hidden = true;
   elements.imageModalImg.src = "";
+  currentImageGallery = [];
+  currentImageIndex = 0;
+  if (elements.imageModalThumbs) {
+    elements.imageModalThumbs.innerHTML = "";
+  }
   elements.imageModalLink.href = "#";
   elements.imageModalLink.hidden = true;
 }
@@ -840,9 +1022,10 @@ function closeImageModal() {
 function openMediaModal(product) {
   currentMediaProductId = product.id;
   elements.mediaImageUrl.value = product.imageUrl || "";
+  elements.mediaImageGallery.value = (product.imageUrls || []).join("\n");
   elements.mediaImageFile.value = "";
   elements.mediaReferenceUrl.value = product.referenceUrl || "";
-  setImagePreview(elements.mediaImagePreviewImg, elements.mediaImagePreviewEmpty, product.imageUrl || "");
+  setDraftGallery("media", product.imageUrls || []);
   elements.mediaModal.hidden = false;
   setTimeout(() => elements.mediaImageUrl.focus(), 0);
 }
@@ -851,7 +1034,7 @@ function closeMediaModal() {
   currentMediaProductId = null;
   elements.mediaModal.hidden = true;
   elements.mediaForm.reset();
-  setImagePreview(elements.mediaImagePreviewImg, elements.mediaImagePreviewEmpty, "");
+  setDraftGallery("media", []);
 }
 
 async function openScannerModal() {
@@ -1061,6 +1244,8 @@ async function updateProduct(productId, updates) {
   if (index < 0) return;
 
   const next = normalizeProduct({ ...products[index], ...updates }, index);
+  next.imageUrls = mergeImageGallery(next.imageUrl || "", next.imageUrls || []);
+  next.imageUrl = next.imageUrls[0] || "";
   next.imageKey = makeImageKey(next);
 
   try {
@@ -1135,6 +1320,8 @@ async function duplicateProduct(productId) {
     id: nextId,
     name: `${current.name} copia`
   });
+  duplicate.imageUrls = mergeImageGallery(duplicate.imageUrl || "", duplicate.imageUrls || []);
+  duplicate.imageUrl = duplicate.imageUrls[0] || "";
   duplicate.imageKey = makeImageKey(duplicate);
 
   try {
@@ -1169,6 +1356,7 @@ async function createBlankProduct() {
     tone: "",
     price: null,
     imageUrl: "",
+    imageUrls: [],
     referenceUrl: "",
     isActive: true
   });
@@ -1240,6 +1428,7 @@ function renderProducts() {
     availability.classList.toggle("is-available", isAvailable(product));
     availability.classList.toggle("is-unavailable", !isAvailable(product));
 
+    const gallery = mergeImageGallery(product.imageUrl || "", product.imageUrls || []);
     if (product.imageUrl) {
       image.src = product.imageUrl;
       image.alt = product.name;
@@ -1248,7 +1437,7 @@ function renderProducts() {
         if (state.adminMode) {
           openMediaModal(product);
         } else {
-          openImageModal(product.imageUrl, product.referenceUrl || product.imageUrl);
+          openImageModal(gallery, product.referenceUrl || product.imageUrl);
         }
       });
     } else {
@@ -1398,13 +1587,14 @@ function syncFilters() {
 }
 
 async function initializeCatalog() {
-  await loadProducts();
+  let session = null;
   try {
-    const session = supabaseClient ? await getCurrentAdminSession() : null;
+    session = supabaseClient ? await getCurrentAdminSession() : null;
     setAdminAuthenticated(Boolean(session));
   } catch {
     setAdminAuthenticated(false);
   }
+  await loadProducts(Boolean(session));
   state.adminMode = false;
   refreshFilters();
   closeImageModal();
@@ -1496,6 +1686,16 @@ elements.backdrop.addEventListener("click", () => {
 });
 elements.imageModalClose.addEventListener("click", closeImageModal);
 elements.imageModalBackdrop.addEventListener("click", closeImageModal);
+elements.imageModalPrev.addEventListener("click", () => {
+  if (!currentImageGallery.length) return;
+  currentImageIndex = (currentImageIndex - 1 + currentImageGallery.length) % currentImageGallery.length;
+  renderImageModalFrame(elements.imageModalLink.hidden ? "" : elements.imageModalLink.href);
+});
+elements.imageModalNext.addEventListener("click", () => {
+  if (!currentImageGallery.length) return;
+  currentImageIndex = (currentImageIndex + 1) % currentImageGallery.length;
+  renderImageModalFrame(elements.imageModalLink.hidden ? "" : elements.imageModalLink.href);
+});
 elements.mediaModalClose.addEventListener("click", closeMediaModal);
 elements.mediaModalBackdrop.addEventListener("click", closeMediaModal);
 elements.mediaModalCancel.addEventListener("click", closeMediaModal);
@@ -1505,38 +1705,42 @@ elements.scannerCancel.addEventListener("click", closeScannerModal);
 elements.scannerModalBackdrop.addEventListener("click", closeScannerModal);
 elements.adminImageUrl.addEventListener("input", () => {
   if (!elements.adminImageFile.files?.length) {
-    setImagePreview(elements.adminImagePreviewImg, elements.adminImagePreviewEmpty, elements.adminImageUrl.value.trim());
+    setDraftGallery("admin", mergeImageGallery(
+      elements.adminImageUrl.value.trim(),
+      parseImageGallery(elements.adminImageGallery.value)
+    ));
   }
 });
 elements.adminImageFile.addEventListener("change", async () => {
-  const file = elements.adminImageFile.files?.[0];
-  if (!file) {
+  const files = elements.adminImageFile.files;
+  if (!files?.length) {
     setImagePreview(elements.adminImagePreviewImg, elements.adminImagePreviewEmpty, elements.adminImageUrl.value.trim());
     return;
   }
   try {
-    const dataUrl = await readFileAsDataUrl(file);
-    elements.adminImageUrl.value = dataUrl;
-    setImagePreview(elements.adminImagePreviewImg, elements.adminImagePreviewEmpty, dataUrl);
+    const dataUrls = await readFilesAsDataUrls(files);
+    setDraftGallery("admin", mergeImageGallery(adminDraftGallery[0] || dataUrls[0], [...adminDraftGallery, ...dataUrls]));
   } catch {
     showAdminStatus("No se pudo cargar la imagen", "error");
   }
 });
 elements.mediaImageUrl.addEventListener("input", () => {
   if (!elements.mediaImageFile.files?.length) {
-    setImagePreview(elements.mediaImagePreviewImg, elements.mediaImagePreviewEmpty, elements.mediaImageUrl.value.trim());
+    setDraftGallery("media", mergeImageGallery(
+      elements.mediaImageUrl.value.trim(),
+      parseImageGallery(elements.mediaImageGallery.value)
+    ));
   }
 });
 elements.mediaImageFile.addEventListener("change", async () => {
-  const file = elements.mediaImageFile.files?.[0];
-  if (!file) {
+  const files = elements.mediaImageFile.files;
+  if (!files?.length) {
     setImagePreview(elements.mediaImagePreviewImg, elements.mediaImagePreviewEmpty, elements.mediaImageUrl.value.trim());
     return;
   }
   try {
-    const dataUrl = await readFileAsDataUrl(file);
-    elements.mediaImageUrl.value = dataUrl;
-    setImagePreview(elements.mediaImagePreviewImg, elements.mediaImagePreviewEmpty, dataUrl);
+    const dataUrls = await readFilesAsDataUrls(files);
+    setDraftGallery("media", mergeImageGallery(mediaDraftGallery[0] || dataUrls[0], [...mediaDraftGallery, ...dataUrls]));
   } catch {
     showAdminStatus("No se pudo cargar la imagen", "error");
   }
@@ -1570,7 +1774,8 @@ elements.adminForm.addEventListener("submit", async (event) => {
     tone: elements.adminTone.value.trim(),
     stock: 1,
     price: elements.adminPrice.value ? Number(elements.adminPrice.value) : null,
-    imageUrl: imageValue,
+    imageUrl: adminDraftGallery[0] || imageValue,
+    imageUrls: mergeImageGallery(adminDraftGallery[0] || imageValue, adminDraftGallery),
     referenceUrl: elements.adminReferenceUrl.value.trim(),
     isActive: elements.adminActive.checked
   };
@@ -1606,17 +1811,21 @@ elements.mediaForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (currentMediaProductId === null) return;
   let imageValue = elements.mediaImageUrl.value.trim();
-  const mediaFile = elements.mediaImageFile.files?.[0];
-  if (mediaFile) {
+  const mediaFiles = elements.mediaImageFile.files;
+  let galleryUrls = mergeImageGallery(mediaDraftGallery[0] || imageValue, mediaDraftGallery);
+  if (mediaFiles?.length) {
     try {
-      imageValue = await readFileAsDataUrl(mediaFile);
+      const dataUrls = await readFilesAsDataUrls(mediaFiles);
+      galleryUrls = mergeImageGallery(dataUrls[0], [...galleryUrls, ...dataUrls]);
+      imageValue = galleryUrls[0] || "";
     } catch {
       showAdminStatus("No se pudo cargar la imagen", "error");
       return;
     }
   }
   await updateProduct(currentMediaProductId, {
-    imageUrl: imageValue,
+    imageUrl: galleryUrls[0] || imageValue,
+    imageUrls: galleryUrls,
     referenceUrl: elements.mediaReferenceUrl.value.trim()
   });
   closeMediaModal();
@@ -1632,6 +1841,8 @@ elements.adminExit.addEventListener("click", async () => {
     console.error("Sign out failed", error);
   }
   setAdminAuthenticated(false);
+  await loadProducts(false);
+  refreshFilters();
   closeAdmin();
   clearAdminInactivityTimer();
 });
@@ -1658,6 +1869,8 @@ elements.loginForm.addEventListener("submit", async (event) => {
     if (error) throw error;
 
     setAdminAuthenticated(true);
+    await loadProducts(true);
+    refreshFilters();
     elements.loginError.hidden = true;
     closeLogin();
     openAdmin();
@@ -1667,12 +1880,14 @@ elements.loginForm.addEventListener("submit", async (event) => {
     elements.loginError.hidden = false;
   }
 });
-elements.adminTrigger.addEventListener("click", () => {
+elements.adminTrigger.addEventListener("click", async () => {
   if (state.adminMode) return;
   adminTapCount += 1;
   if (adminTapCount >= hiddenAdminClicksNeeded) {
     adminTapCount = 0;
     if (isAdminAuthenticated()) {
+      await loadProducts(true);
+      refreshFilters();
       openAdmin();
     } else {
       openLogin();
