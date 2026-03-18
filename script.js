@@ -183,6 +183,13 @@ function normalizeBarcode(value) {
   return String(value || "").replace(/\D/g, "");
 }
 
+function normalizeExternalUrl(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return "";
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return trimmed;
+  return `https://${trimmed.replace(/^\/+/, "")}`;
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -1890,6 +1897,12 @@ elements.openScanner.addEventListener("click", openScannerModal);
 elements.closeScanner.addEventListener("click", closeScannerModal);
 elements.scannerCancel.addEventListener("click", closeScannerModal);
 elements.scannerModalBackdrop.addEventListener("click", closeScannerModal);
+elements.adminReferenceUrl.addEventListener("blur", () => {
+  elements.adminReferenceUrl.value = normalizeExternalUrl(elements.adminReferenceUrl.value);
+});
+elements.mediaReferenceUrl.addEventListener("blur", () => {
+  elements.mediaReferenceUrl.value = normalizeExternalUrl(elements.mediaReferenceUrl.value);
+});
 elements.adminImageUrl.addEventListener("input", () => {
   if (!getPendingUploads("admin").length) {
     setDraftGallery("admin", mergeImageGallery(
@@ -1975,7 +1988,7 @@ elements.adminForm.addEventListener("submit", async (event) => {
     price: elements.adminPrice.value ? Number(elements.adminPrice.value) : null,
     imageUrl: imageValue,
     imageUrls: galleryUrls,
-    referenceUrl: elements.adminReferenceUrl.value.trim(),
+    referenceUrl: normalizeExternalUrl(elements.adminReferenceUrl.value),
     isActive: elements.adminActive.checked
   };
 
@@ -2037,7 +2050,7 @@ elements.mediaForm.addEventListener("submit", async (event) => {
   await updateProduct(currentMediaProductId, {
     imageUrl: galleryUrls[0] || imageValue,
     imageUrls: galleryUrls,
-    referenceUrl: elements.mediaReferenceUrl.value.trim()
+    referenceUrl: normalizeExternalUrl(elements.mediaReferenceUrl.value)
   });
   closeMediaModal();
 });
