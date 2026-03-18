@@ -1260,7 +1260,10 @@ async function openScannerModal() {
       {
         fps: 12,
         qrbox: { width: 280, height: 180 },
-        disableFlip: false
+        disableFlip: false,
+        experimentalFeatures: {
+          useBarCodeDetectorIfSupported: true
+        }
       },
       handleBarcodeResult,
       () => {}
@@ -1270,7 +1273,10 @@ async function openScannerModal() {
         {
           fps: 12,
           qrbox: { width: 280, height: 180 },
-          disableFlip: false
+          disableFlip: false,
+          experimentalFeatures: {
+            useBarCodeDetectorIfSupported: true
+          }
         },
         handleBarcodeResult,
         () => {}
