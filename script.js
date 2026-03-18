@@ -1236,20 +1236,6 @@ async function openScannerModal() {
     elements.scannerHint.textContent = "Apunta la camara al codigo de barras o sube una imagen del codigo.";
     elements.scannerReader.innerHTML = "";
 
-    const formats = window.Html5QrcodeSupportedFormats
-      ? [
-          window.Html5QrcodeSupportedFormats.EAN_13,
-          window.Html5QrcodeSupportedFormats.EAN_8,
-          window.Html5QrcodeSupportedFormats.UPC_A,
-          window.Html5QrcodeSupportedFormats.UPC_E,
-          window.Html5QrcodeSupportedFormats.CODE_128,
-          window.Html5QrcodeSupportedFormats.CODE_39,
-          window.Html5QrcodeSupportedFormats.CODE_93,
-          window.Html5QrcodeSupportedFormats.CODABAR,
-          window.Html5QrcodeSupportedFormats.ITF
-        ]
-      : undefined;
-
     scannerUi = new window.Html5Qrcode("scanner-reader");
 
     const handleBarcodeResult = (decodedText) => {
@@ -1272,10 +1258,8 @@ async function openScannerModal() {
     await scannerUi.start(
       { facingMode: { exact: "environment" } },
       {
-        fps: 10,
-        qrbox: { width: 260, height: 140 },
-        aspectRatio: 1.777778,
-        formatsToSupport: formats,
+        fps: 12,
+        qrbox: { width: 280, height: 180 },
         disableFlip: false
       },
       handleBarcodeResult,
@@ -1284,10 +1268,8 @@ async function openScannerModal() {
       await scannerUi.start(
         { facingMode: "environment" },
         {
-          fps: 10,
-          qrbox: { width: 260, height: 140 },
-          aspectRatio: 1.777778,
-          formatsToSupport: formats,
+          fps: 12,
+          qrbox: { width: 280, height: 180 },
           disableFlip: false
         },
         handleBarcodeResult,
