@@ -253,6 +253,19 @@ function hasLegacyInlineImages(product) {
   return (product.imageUrls || []).some((item) => isInlineImageData(item));
 }
 
+function hasSuspiciousCatalogData(product) {
+  if (!product) return false;
+  const category = String(product.category || "").trim().toLowerCase();
+  const type = String(product.type || "").trim().toLowerCase();
+  const description = String(product.description || "").trim().toLowerCase();
+  const suspiciousCategories = new Set(["categoria", "categoría"]);
+  const suspiciousTypes = new Set(["nuevo", "tipo"]);
+  const suspiciousDescriptions = new Set(["a", "test", "prueba", "descripcion", "descripción"]);
+  return suspiciousCategories.has(category)
+    || suspiciousTypes.has(type)
+    || suspiciousDescriptions.has(description);
+}
+
 function updateLegacyImageNote(kind, product) {
   const note = kind === "admin" ? elements.adminImageLegacyNote : elements.mediaImageLegacyNote;
   if (!note) return;
@@ -1558,11 +1571,13 @@ function renderProducts() {
     const price = node.querySelector(".product-price");
     const initial = node.querySelector(".product-initial");
     const editFlag = node.querySelector(".product-edit-flag");
+    const adminNotes = node.querySelector(".product-admin-notes");
     const adminActions = node.querySelector(".product-admin-actions");
     const saveBtn = node.querySelector(".admin-card-save");
     const toggleBtn = node.querySelector(".admin-card-toggle");
     const duplicateBtn = node.querySelector(".admin-card-duplicate");
     const deleteBtn = node.querySelector(".admin-card-delete");
+    const deleteTopBtn = node.querySelector(".admin-card-delete-top");
     const image = node.querySelector(".product-image");
     const art = node.querySelector(".product-art");
 
@@ -1605,6 +1620,17 @@ function renderProducts() {
     if (state.adminMode) {
       card.classList.add("admin-editing");
       editFlag.hidden = false;
+      const notes = [];
+      if (hasLegacyInlineImages(product)) {
+        notes.push(`<span class="product-admin-note is-warning">Imagen antigua</span>`);
+      }
+      if (hasSuspiciousCatalogData(product)) {
+        notes.push(`<span class="product-admin-note is-info">Revisar datos</span>`);
+      }
+      if (adminNotes) {
+        adminNotes.hidden = !notes.length;
+        adminNotes.innerHTML = notes.join("");
+      }
       adminActions.hidden = false;
       [
         [badge, "category"],
@@ -1624,7 +1650,10 @@ function renderProducts() {
       saveBtn.disabled = state.saving;
       toggleBtn.disabled = state.saving;
       duplicateBtn.disabled = state.saving;
-      deleteBtn.disabled = state.saving;
+      if (deleteTopBtn) {
+        deleteTopBtn.hidden = false;
+        deleteTopBtn.disabled = state.saving;
+      }
       toggleBtn.textContent = product.isActive === false ? "Activar" : "Desactivar";
       saveBtn.addEventListener("click", async (event) => {
         event.preventDefault();
@@ -1651,14 +1680,21 @@ function renderProducts() {
         event.stopPropagation();
         await duplicateProduct(card.dataset.productId);
       });
-      deleteBtn.addEventListener("click", async (event) => {
+      deleteTopBtn?.addEventListener("click", async (event) => {
         event.preventDefault();
         event.stopPropagation();
         await deleteProduct(card.dataset.productId);
       });
     } else {
       editFlag.hidden = true;
+      if (adminNotes) {
+        adminNotes.hidden = true;
+        adminNotes.innerHTML = "";
+      }
       adminActions.hidden = true;
+      if (deleteTopBtn) {
+        deleteTopBtn.hidden = true;
+      }
     }
 
     const addToCartButton = node.querySelector(".add-to-cart");
