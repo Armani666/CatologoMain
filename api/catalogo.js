@@ -19,7 +19,6 @@ module.exports = async function handler(req, res) {
     "brand",
     "category",
     "type",
-    "barcode",
     "description",
     "stock",
     "tone",

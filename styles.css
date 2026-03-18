@@ -93,6 +93,10 @@ a { color: inherit; text-decoration: none; }
   padding-bottom: 2px;
 }
 
+.header-actions::-webkit-scrollbar {
+  height: 0;
+}
+
 .nav-pill {
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.82);
@@ -238,7 +242,7 @@ a { color: inherit; text-decoration: none; }
 }
 .toolbar {
   display: grid;
-  grid-template-columns: minmax(240px, 1.6fr) repeat(2, minmax(180px, .7fr));
+  grid-template-columns: minmax(240px, 1.8fr) minmax(180px, .8fr) minmax(180px, .8fr);
   gap: 14px;
   padding: 16px;
   margin-bottom: 16px;
@@ -1275,7 +1279,12 @@ body:not(.admin-mode) .editable-field {
   }
   .catalog-header h1 { font-size: 1.3rem; }
   .eyebrow { font-size: .58rem; }
-  .header-actions { display: none; }
+  .header-actions {
+    display: flex;
+    gap: 8px;
+    padding-bottom: 2px;
+    overflow-x: auto;
+  }
   .nav-pill {
     padding: 6px 9px;
     font-size: .72rem;

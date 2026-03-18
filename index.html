@@ -23,10 +23,7 @@
           <button class="nav-pill order-pill" id="open-cart" type="button">Pedido <span id="hero-cart-count">0</span></button>
         </div>
       </div>
-      <div class="header-actions">
-        <button class="nav-pill active" type="button">Catalogo</button>
-        <button class="nav-pill" type="button">Categorias</button>
-      </div>
+      <div class="header-actions" id="quick-category-filters" aria-label="Filtros rapidos por categoria"></div>
     </header>
 
     <section class="admin-bar" id="admin-bar" hidden>
@@ -55,10 +52,6 @@
         <label class="search-field">
           <span>Buscar</span>
           <input id="search-input" type="search" placeholder="Producto, tono o marca">
-        </label>
-        <label class="filter-field">
-          <span>Categoria</span>
-          <select id="category-filter"></select>
         </label>
         <label class="filter-field">
           <span>Marca</span>
@@ -277,8 +270,6 @@
     </article>
   </template>
 
-  <script src="productos.js"></script>
-  <script src="productos-editados.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script src="script.js"></script>

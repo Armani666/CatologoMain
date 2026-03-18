@@ -10,6 +10,7 @@ const supabaseConfig = {
   orderItemsTable: "order_items"
 };
 const catalogApiPath = "/api/catalogo";
+const productImagesBucket = "product-images";
 const fieldPlaceholders = {
   category: "Categoria",
   brand: "Marca",
@@ -71,8 +72,8 @@ const elements = {
   resultsCount: document.querySelector("#results-count"),
   saveToast: document.querySelector("#save-toast"),
   searchInput: document.querySelector("#search-input"),
-  categoryFilter: document.querySelector("#category-filter"),
   brandFilter: document.querySelector("#brand-filter"),
+  quickCategoryFilters: document.querySelector("#quick-category-filters"),
   clearFilters: document.querySelector("#clear-filters"),
   heroCartCount: document.querySelector("#hero-cart-count"),
   cartDrawer: document.querySelector("#cart-drawer"),
@@ -169,6 +170,8 @@ let currentImageGallery = [];
 let currentImageIndex = 0;
 let adminDraftGallery = [];
 let mediaDraftGallery = [];
+let adminPendingUploads = [];
+let mediaPendingUploads = [];
 
 function createOrderId() {
   return Date.now() * 1000 + Math.floor(Math.random() * 1000);
@@ -195,8 +198,55 @@ function parseImageGallery(value) {
     .filter(Boolean);
 }
 
-function readFilesAsDataUrls(files) {
-  return Promise.all(Array.from(files || []).map((file) => readFileAsDataUrl(file)));
+function getPendingUploads(kind) {
+  return kind === "admin" ? adminPendingUploads : mediaPendingUploads;
+}
+
+function setPendingUploads(kind, uploads) {
+  if (kind === "admin") adminPendingUploads = uploads;
+  else mediaPendingUploads = uploads;
+}
+
+function revokePendingUpload(upload) {
+  if (!upload?.previewUrl || !String(upload.previewUrl).startsWith("blob:")) return;
+  URL.revokeObjectURL(upload.previewUrl);
+}
+
+function clearPendingUploads(kind) {
+  getPendingUploads(kind).forEach(revokePendingUpload);
+  setPendingUploads(kind, []);
+}
+
+function rememberPendingUploads(kind, files) {
+  const nextUploads = Array.from(files || []).map((file) => ({
+    file,
+    previewUrl: URL.createObjectURL(file)
+  }));
+  const uploads = [...getPendingUploads(kind), ...nextUploads];
+  setPendingUploads(kind, uploads);
+  return nextUploads.map((upload) => upload.previewUrl);
+}
+
+function releasePendingUploadByPreview(kind, previewUrl) {
+  const uploads = getPendingUploads(kind);
+  const kept = [];
+  uploads.forEach((upload) => {
+    if (upload.previewUrl === previewUrl) revokePendingUpload(upload);
+    else kept.push(upload);
+  });
+  setPendingUploads(kind, kept);
+}
+
+function isLocalPreviewUrl(value) {
+  return String(value || "").startsWith("blob:");
+}
+
+function isInlineImageData(value) {
+  return /^data:image\//i.test(String(value || "").trim());
+}
+
+function getPersistedGallery(gallery) {
+  return (gallery || []).filter((item) => item && !isLocalPreviewUrl(item));
 }
 
 function mergeImageGallery(primaryImage, gallery) {
@@ -217,8 +267,9 @@ function syncGalleryField(kind) {
   const galleryField = kind === "admin" ? elements.adminImageGallery : elements.mediaImageGallery;
   const previewImg = kind === "admin" ? elements.adminImagePreviewImg : elements.mediaImagePreviewImg;
   const previewEmpty = kind === "admin" ? elements.adminImagePreviewEmpty : elements.mediaImagePreviewEmpty;
-  urlInput.value = gallery[0] || "";
-  galleryField.value = gallery.join("\n");
+  const persistedGallery = getPersistedGallery(gallery);
+  urlInput.value = persistedGallery[0] || "";
+  galleryField.value = persistedGallery.join("\n");
   setImagePreview(previewImg, previewEmpty, gallery[0] || "");
 }
 
@@ -244,7 +295,10 @@ function moveDraftImageToFront(kind, index) {
 function removeDraftImage(kind, index) {
   const gallery = [...(kind === "admin" ? adminDraftGallery : mediaDraftGallery)];
   if (index < 0 || index >= gallery.length) return;
-  gallery.splice(index, 1);
+  const [removed] = gallery.splice(index, 1);
+  if (isLocalPreviewUrl(removed)) {
+    releasePendingUploadByPreview(kind, removed);
+  }
   setDraftGallery(kind, gallery);
 }
 
@@ -277,6 +331,16 @@ function renderGalleryManager(kind) {
 
 function makeImageKey(product) {
   return `${product.name || ""}__${product.category || ""}__${product.type || ""}`;
+}
+
+function makeStorageSafeName(value) {
+  return String(value || "imagen")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9-_]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .toLowerCase() || "imagen";
 }
 
 function isAdminAuthenticated() {
@@ -445,6 +509,46 @@ async function deleteRemoteProduct(productId) {
   if (error) throw error;
 }
 
+async function uploadPendingImages(kind, productId, productName = "") {
+  const uploads = getPendingUploads(kind);
+  if (!uploads.length) return new Map();
+
+  const client = ensureSupabase();
+  const bucket = client.storage.from(productImagesBucket);
+  const uploadedUrls = new Map();
+
+  for (let index = 0; index < uploads.length; index += 1) {
+    const upload = uploads[index];
+    const file = upload.file;
+    const extension = (file.name.split(".").pop() || "jpg").toLowerCase();
+    const safeName = makeStorageSafeName(productName || `producto-${productId}`);
+    const filePath = `products/${productId}/${Date.now()}-${index}-${safeName}.${extension}`;
+    const { error } = await bucket.upload(filePath, file, {
+      cacheControl: "3600",
+      upsert: false,
+      contentType: file.type || undefined
+    });
+    if (error) throw error;
+    const { data } = bucket.getPublicUrl(filePath);
+    uploadedUrls.set(upload.previewUrl, data.publicUrl);
+  }
+
+  return uploadedUrls;
+}
+
+function replacePendingImagesWithUploadedUrls(gallery, uploadedUrls) {
+  const mappedGallery = (gallery || [])
+    .map((item) => uploadedUrls.get(item) || item)
+    .filter((item) => item && !isLocalPreviewUrl(item));
+
+  const uploadedGallery = mappedGallery.filter((item) => !isInlineImageData(item));
+  if (uploadedUrls.size && uploadedGallery.length) {
+    return mergeImageGallery(uploadedGallery[0], uploadedGallery);
+  }
+
+  return mergeImageGallery("", mappedGallery);
+}
+
 async function fetchRemoteOrders() {
   const client = ensureSupabase();
   const { data, error } = await client
@@ -601,15 +705,6 @@ function parseStock(value, fallback = 0) {
   return Math.max(0, parsed);
 }
 
-function readFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("No se pudo leer la imagen."));
-    reader.readAsDataURL(file);
-  });
-}
-
 function setImagePreview(imgEl, emptyEl, src) {
   if (!imgEl || !emptyEl) return;
   if (src) {
@@ -631,13 +726,32 @@ function fillSelect(select, values) {
   select.innerHTML = values.map((value) => `<option value="${value}">${value}</option>`).join("");
 }
 
+function renderQuickCategoryFilters(values) {
+  if (!elements.quickCategoryFilters) return;
+  elements.quickCategoryFilters.innerHTML = values.map((value) => `
+    <button
+      class="nav-pill ${state.category === value ? "active" : ""}"
+      type="button"
+      data-category-pill="${escapeHtml(value)}"
+    >${escapeHtml(value)}</button>
+  `).join("");
+
+  elements.quickCategoryFilters.querySelectorAll("[data-category-pill]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.category = button.dataset.categoryPill || "Todas";
+      renderQuickCategoryFilters(values);
+      renderProducts();
+    });
+  });
+}
+
 function refreshFilters() {
   const categoryValues = uniqueValues("category");
   const brandValues = uniqueValues("brand");
-  fillSelect(elements.categoryFilter, categoryValues);
   fillSelect(elements.brandFilter, brandValues);
-  elements.categoryFilter.value = categoryValues.includes(state.category) ? state.category : "Todas";
+  state.category = categoryValues.includes(state.category) ? state.category : "Todas";
   elements.brandFilter.value = brandValues.includes(state.brand) ? state.brand : "Todas";
+  renderQuickCategoryFilters(categoryValues);
 }
 
 function getFilteredProducts() {
@@ -721,6 +835,7 @@ function closeOrdersDrawer() {
 }
 
 function resetAdminForm(product = null) {
+  clearPendingUploads("admin");
   currentAdminProductId = product ? Number(product.id) : null;
   elements.adminId.value = product ? String(product.id) : "";
   elements.adminName.value = product?.name || "";
@@ -1031,6 +1146,7 @@ function openMediaModal(product) {
 }
 
 function closeMediaModal() {
+  clearPendingUploads("media");
   currentMediaProductId = null;
   elements.mediaModal.hidden = true;
   elements.mediaForm.reset();
@@ -1186,10 +1302,9 @@ function exportCatalogPdf() {
     search: state.search,
     category: state.category,
     brand: state.brand,
-    searchInput: elements.searchInput.value,
-    categoryFilter: elements.categoryFilter.value,
-    brandFilter: elements.brandFilter.value
-  };
+      searchInput: elements.searchInput.value,
+      brandFilter: elements.brandFilter.value
+    };
   if (state.adminMode) {
     closeAdmin();
   }
@@ -1197,8 +1312,8 @@ function exportCatalogPdf() {
   state.category = "Todas";
   state.brand = "Todas";
   elements.searchInput.value = "";
-  elements.categoryFilter.value = "Todas";
   elements.brandFilter.value = "Todas";
+  renderQuickCategoryFilters(uniqueValues("category"));
   renderPrintCatalog();
   renderProducts();
   document.body.classList.add("print-mode");
@@ -1581,7 +1696,6 @@ function renderCart() {
 
 function syncFilters() {
   state.search = elements.searchInput.value.trim();
-  state.category = elements.categoryFilter.value;
   state.brand = elements.brandFilter.value;
   renderProducts();
 }
@@ -1661,7 +1775,6 @@ async function submitOrder() {
 }
 
 elements.searchInput.addEventListener("input", syncFilters);
-elements.categoryFilter.addEventListener("change", syncFilters);
 elements.brandFilter.addEventListener("change", syncFilters);
 elements.adminStatusFilter.addEventListener("change", () => {
   state.adminStatus = elements.adminStatusFilter.value;
@@ -1673,8 +1786,8 @@ elements.clearFilters.addEventListener("click", () => {
   state.category = "Todas";
   state.brand = "Todas";
   elements.searchInput.value = "";
-  elements.categoryFilter.value = "Todas";
   elements.brandFilter.value = "Todas";
+  renderQuickCategoryFilters(uniqueValues("category"));
   renderProducts();
 });
 elements.openCart.addEventListener("click", openCart);
@@ -1704,7 +1817,7 @@ elements.closeScanner.addEventListener("click", closeScannerModal);
 elements.scannerCancel.addEventListener("click", closeScannerModal);
 elements.scannerModalBackdrop.addEventListener("click", closeScannerModal);
 elements.adminImageUrl.addEventListener("input", () => {
-  if (!elements.adminImageFile.files?.length) {
+  if (!getPendingUploads("admin").length) {
     setDraftGallery("admin", mergeImageGallery(
       elements.adminImageUrl.value.trim(),
       parseImageGallery(elements.adminImageGallery.value)
@@ -1718,14 +1831,15 @@ elements.adminImageFile.addEventListener("change", async () => {
     return;
   }
   try {
-    const dataUrls = await readFilesAsDataUrls(files);
-    setDraftGallery("admin", mergeImageGallery(adminDraftGallery[0] || dataUrls[0], [...adminDraftGallery, ...dataUrls]));
+    const previewUrls = rememberPendingUploads("admin", files);
+    const nextPrimary = isInlineImageData(adminDraftGallery[0]) ? previewUrls[0] : (adminDraftGallery[0] || previewUrls[0]);
+    setDraftGallery("admin", mergeImageGallery(nextPrimary, [...adminDraftGallery, ...previewUrls]));
   } catch {
     showAdminStatus("No se pudo cargar la imagen", "error");
   }
 });
 elements.mediaImageUrl.addEventListener("input", () => {
-  if (!elements.mediaImageFile.files?.length) {
+  if (!getPendingUploads("media").length) {
     setDraftGallery("media", mergeImageGallery(
       elements.mediaImageUrl.value.trim(),
       parseImageGallery(elements.mediaImageGallery.value)
@@ -1739,8 +1853,9 @@ elements.mediaImageFile.addEventListener("change", async () => {
     return;
   }
   try {
-    const dataUrls = await readFilesAsDataUrls(files);
-    setDraftGallery("media", mergeImageGallery(mediaDraftGallery[0] || dataUrls[0], [...mediaDraftGallery, ...dataUrls]));
+    const previewUrls = rememberPendingUploads("media", files);
+    const nextPrimary = isInlineImageData(mediaDraftGallery[0]) ? previewUrls[0] : (mediaDraftGallery[0] || previewUrls[0]);
+    setDraftGallery("media", mergeImageGallery(nextPrimary, [...mediaDraftGallery, ...previewUrls]));
   } catch {
     showAdminStatus("No se pudo cargar la imagen", "error");
   }
@@ -1754,16 +1869,18 @@ elements.closeOrders.addEventListener("click", closeOrdersDrawer);
 elements.adminExportPdf.addEventListener("click", exportCatalogPdf);
 elements.adminForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  let imageValue = elements.adminImageUrl.value.trim();
-  const adminFile = elements.adminImageFile.files?.[0];
-  if (adminFile) {
-    try {
-      imageValue = await readFileAsDataUrl(adminFile);
-    } catch {
-      showAdminStatus("No se pudo cargar la imagen", "error");
-      return;
-    }
+  const nextId = currentAdminProductId || (products.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0) + 1);
+  let galleryUrls = mergeImageGallery(elements.adminImageUrl.value.trim(), adminDraftGallery);
+  try {
+    const uploadedUrls = await uploadPendingImages("admin", nextId, elements.adminName.value.trim());
+    galleryUrls = replacePendingImagesWithUploadedUrls(galleryUrls, uploadedUrls);
+  } catch (error) {
+    console.error("Admin image upload failed", error);
+    showAdminStatus("No se pudo subir la imagen", "error");
+    return;
   }
+
+  const imageValue = galleryUrls[0] || "";
   const payload = {
     name: elements.adminName.value.trim(),
     brand: elements.adminBrand.value.trim(),
@@ -1774,22 +1891,24 @@ elements.adminForm.addEventListener("submit", async (event) => {
     tone: elements.adminTone.value.trim(),
     stock: 1,
     price: elements.adminPrice.value ? Number(elements.adminPrice.value) : null,
-    imageUrl: adminDraftGallery[0] || imageValue,
-    imageUrls: mergeImageGallery(adminDraftGallery[0] || imageValue, adminDraftGallery),
+    imageUrl: imageValue,
+    imageUrls: galleryUrls,
     referenceUrl: elements.adminReferenceUrl.value.trim(),
     isActive: elements.adminActive.checked
   };
 
   if (currentAdminProductId) {
     await updateProduct(currentAdminProductId, payload);
+    clearPendingUploads("admin");
+    resetAdminForm(products.find((item) => Number(item.id) === Number(currentAdminProductId)) || normalizeProduct({ id: currentAdminProductId, ...payload }));
   } else {
-    const nextId = products.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0) + 1;
     const draft = normalizeProduct({ id: nextId, ...payload });
     draft.imageKey = makeImageKey(draft);
     try {
       setSavingState(true);
       await persistProduct(draft);
       products.unshift(draft);
+      clearPendingUploads("admin");
       refreshFilters();
       renderAdminList();
       renderProducts();
@@ -1811,17 +1930,15 @@ elements.mediaForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (currentMediaProductId === null) return;
   let imageValue = elements.mediaImageUrl.value.trim();
-  const mediaFiles = elements.mediaImageFile.files;
   let galleryUrls = mergeImageGallery(mediaDraftGallery[0] || imageValue, mediaDraftGallery);
-  if (mediaFiles?.length) {
-    try {
-      const dataUrls = await readFilesAsDataUrls(mediaFiles);
-      galleryUrls = mergeImageGallery(dataUrls[0], [...galleryUrls, ...dataUrls]);
-      imageValue = galleryUrls[0] || "";
-    } catch {
-      showAdminStatus("No se pudo cargar la imagen", "error");
-      return;
-    }
+  try {
+    const uploadedUrls = await uploadPendingImages("media", currentMediaProductId, products.find((item) => Number(item.id) === Number(currentMediaProductId))?.name || "");
+    galleryUrls = replacePendingImagesWithUploadedUrls(galleryUrls, uploadedUrls);
+    imageValue = galleryUrls[0] || "";
+  } catch (error) {
+    console.error("Media image upload failed", error);
+    showAdminStatus("No se pudo subir la imagen", "error");
+    return;
   }
   await updateProduct(currentMediaProductId, {
     imageUrl: galleryUrls[0] || imageValue,
@@ -1936,9 +2053,9 @@ window.addEventListener("afterprint", () => {
     state.category = savedPrintView.category;
     state.brand = savedPrintView.brand;
     elements.searchInput.value = savedPrintView.searchInput;
-    elements.categoryFilter.value = savedPrintView.categoryFilter;
     elements.brandFilter.value = savedPrintView.brandFilter;
     savedPrintView = null;
+    renderQuickCategoryFilters(uniqueValues("category"));
   }
   if (restoreAdminAfterPrint && isAdminAuthenticated()) {
     openAdmin();
