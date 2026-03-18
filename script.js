@@ -159,6 +159,10 @@ function createOrderId() {
   return Date.now() * 1000 + Math.floor(Math.random() * 1000);
 }
 
+function normalizeBarcode(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -851,7 +855,7 @@ function closeMediaModal() {
 }
 
 async function openScannerModal() {
-  if (typeof window.Html5QrcodeScanner !== "function") {
+  if (typeof window.Html5Qrcode !== "function") {
     showAdminStatus("Tu navegador no soporta escaneo aqui", "error");
     return;
   }
@@ -872,43 +876,56 @@ async function openScannerModal() {
         ]
       : undefined;
 
-    scannerUi = new window.Html5QrcodeScanner(
-      "scanner-reader",
+    scannerUi = new window.Html5Qrcode("scanner-reader");
+
+    const handleBarcodeResult = (decodedText) => {
+      const rawValue = String(decodedText || "").trim();
+      const normalizedValue = normalizeBarcode(rawValue);
+      if ((!rawValue && !normalizedValue) || scannerClosing) return;
+
+      const product = products.find((item) => {
+        const savedRaw = String(item.barcode || "").trim();
+        const savedNormalized = normalizeBarcode(savedRaw);
+        return (savedNormalized && savedNormalized === normalizedValue)
+          || (savedRaw && savedRaw === rawValue);
+      });
+
+      if (!product) {
+        elements.scannerHint.textContent = `Codigo detectado: ${rawValue}. No encontrado.`;
+        return;
+      }
+
+      scannerClosing = true;
+      addToCart(product.id);
+      showAdminStatus(`Agregado: ${product.name}`, "success");
+      closeScannerModal();
+    };
+
+    await scannerUi.start(
+      { facingMode: { exact: "environment" } },
       {
         fps: 10,
         qrbox: { width: 260, height: 140 },
         aspectRatio: 1.777778,
-        rememberLastUsedCamera: true,
-        supportedScanTypes: window.Html5QrcodeScanType
-          ? [
-              window.Html5QrcodeScanType.SCAN_TYPE_CAMERA,
-              window.Html5QrcodeScanType.SCAN_TYPE_FILE
-            ]
-          : undefined,
-        formatsToSupport: formats
+        formatsToSupport: formats,
+        disableFlip: false
       },
-      false
-    );
-
-    scannerUi.render(
-      (decodedText) => {
-        const rawValue = String(decodedText || "").trim();
-        if (!rawValue || scannerClosing) return;
-        const product = products.find((item) => String(item.barcode || "").trim() === rawValue);
-        if (!product) {
-          elements.scannerHint.textContent = `Codigo no encontrado: ${rawValue}`;
-          return;
-        }
-
-        scannerClosing = true;
-        addToCart(product.id);
-        showAdminStatus(`Agregado: ${product.name}`, "success");
-        closeScannerModal();
-      },
-      () => {
-        // sin ruido en cada frame fallido
-      }
-    );
+      handleBarcodeResult,
+      () => {}
+    ).catch(async () => {
+      await scannerUi.start(
+        { facingMode: "environment" },
+        {
+          fps: 10,
+          qrbox: { width: 260, height: 140 },
+          aspectRatio: 1.777778,
+          formatsToSupport: formats,
+          disableFlip: false
+        },
+        handleBarcodeResult,
+        () => {}
+      );
+    });
   } catch {
     showAdminStatus("No se pudo abrir el escaner", "error");
   }
@@ -921,7 +938,11 @@ function closeScannerModal() {
   }
   const currentScanner = scannerUi;
   scannerUi = null;
-  if (currentScanner?.clear) {
+  if (currentScanner?.stop) {
+    currentScanner.stop().catch(() => {}).finally(() => {
+      if (currentScanner?.clear) currentScanner.clear().catch(() => {});
+    });
+  } else if (currentScanner?.clear) {
     currentScanner.clear().catch(() => {});
   }
   if (elements.scannerReader) {
