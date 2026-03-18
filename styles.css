@@ -719,6 +719,19 @@ body:not(.admin-mode) .editable-field {
 .admin-check-field input {
   width: auto;
 }
+.technical-field {
+  display: none;
+}
+.legacy-image-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(164, 91, 82, 0.12);
+  border: 1px solid rgba(164, 91, 82, 0.2);
+  color: var(--accent-strong);
+  font-size: .82rem;
+  line-height: 1.4;
+}
 .admin-image-preview {
   display: grid;
   place-items: center;
@@ -845,6 +858,23 @@ body:not(.admin-mode) .editable-field {
   background: rgba(255, 255, 255, 0.82);
   border: 1px solid rgba(73, 40, 31, 0.08);
   box-shadow: var(--shadow-soft);
+}
+.admin-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.admin-item-badge {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: rgba(164, 91, 82, 0.14);
+  color: var(--accent-strong);
+  font-size: .65rem;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
 }
 .admin-item h3,
 .admin-item p {

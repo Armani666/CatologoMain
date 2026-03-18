@@ -107,6 +107,7 @@ const elements = {
   mediaImagePreviewImg: document.querySelector("#media-image-preview-img"),
   mediaImagePreviewEmpty: document.querySelector("#media-image-preview-empty"),
   mediaGalleryManager: document.querySelector("#media-gallery-manager"),
+  mediaImageLegacyNote: document.querySelector("#media-image-legacy-note"),
   mediaModalCancel: document.querySelector("#media-modal-cancel"),
   scannerModal: document.querySelector("#scanner-modal"),
   scannerModalBackdrop: document.querySelector("#scanner-modal-backdrop"),
@@ -147,6 +148,7 @@ const elements = {
   adminImagePreviewImg: document.querySelector("#admin-image-preview-img"),
   adminImagePreviewEmpty: document.querySelector("#admin-image-preview-empty"),
   adminGalleryManager: document.querySelector("#admin-gallery-manager"),
+  adminImageLegacyNote: document.querySelector("#admin-image-legacy-note"),
   adminActive: document.querySelector("#admin-active"),
   openCart: document.querySelector("#open-cart"),
   closeCart: document.querySelector("#close-cart"),
@@ -243,6 +245,18 @@ function isLocalPreviewUrl(value) {
 
 function isInlineImageData(value) {
   return /^data:image\//i.test(String(value || "").trim());
+}
+
+function hasLegacyInlineImages(product) {
+  if (!product) return false;
+  if (isInlineImageData(product.imageUrl)) return true;
+  return (product.imageUrls || []).some((item) => isInlineImageData(item));
+}
+
+function updateLegacyImageNote(kind, product) {
+  const note = kind === "admin" ? elements.adminImageLegacyNote : elements.mediaImageLegacyNote;
+  if (!note) return;
+  note.hidden = !hasLegacyInlineImages(product);
 }
 
 function getPersistedGallery(gallery) {
@@ -853,6 +867,7 @@ function closeOrdersDrawer() {
 
 function resetAdminForm(product = null) {
   clearPendingUploads("admin");
+  updateLegacyImageNote("admin", product);
   currentAdminProductId = product ? Number(product.id) : null;
   elements.adminId.value = product ? String(product.id) : "";
   elements.adminName.value = product?.name || "";
@@ -883,10 +898,14 @@ function renderAdminList() {
 
   const fragment = document.createDocumentFragment();
   adminItems.forEach((product) => {
+    const hasLegacyImage = hasLegacyInlineImages(product);
     const item = document.createElement("article");
     item.className = "admin-item";
     item.innerHTML = `
-      <h3>${product.name}</h3>
+      <div class="admin-item-head">
+        <h3>${product.name}</h3>
+        ${hasLegacyImage ? `<span class="admin-item-badge">Imagen antigua</span>` : ""}
+      </div>
       <p>${product.brand} | ${product.category}</p>
       <p>${product.isActive === false ? "Oculto" : "Visible"}</p>
       <div class="admin-item-actions">
@@ -1153,17 +1172,19 @@ function closeImageModal() {
 
 function openMediaModal(product) {
   currentMediaProductId = product.id;
+  updateLegacyImageNote("media", product);
   elements.mediaImageUrl.value = product.imageUrl || "";
   elements.mediaImageGallery.value = (product.imageUrls || []).join("\n");
   elements.mediaImageFile.value = "";
   elements.mediaReferenceUrl.value = product.referenceUrl || "";
   setDraftGallery("media", product.imageUrls || []);
   elements.mediaModal.hidden = false;
-  setTimeout(() => elements.mediaImageUrl.focus(), 0);
+  setTimeout(() => elements.mediaReferenceUrl.focus(), 0);
 }
 
 function closeMediaModal() {
   clearPendingUploads("media");
+  updateLegacyImageNote("media", null);
   currentMediaProductId = null;
   elements.mediaModal.hidden = true;
   elements.mediaForm.reset();

@@ -26,8 +26,7 @@ module.exports = async function handler(req, res) {
     "image_url",
     "image_urls",
     "reference_url",
-    "is_active",
-    "image_key"
+    "is_active"
   ].join(",");
 
   const endpoint = `${supabaseUrl}/rest/v1/products?select=${encodeURIComponent(select)}&is_active=eq.true&order=id.asc`;
